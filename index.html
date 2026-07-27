@@ -843,10 +843,13 @@ function BigBtn({ children, color, onClick, flex }) {
       raw = raw.replace(/^\s*import[\s\S]*?;\s*$/gm, '')
                .replace(/^\s*export\s+default\s+/gm, '');
       code = Babel.transform(raw, {
-        presets: ['react'],
+        presets: [['react', { runtime: 'classic' }]],
         sourceType: 'script',
         compact: false
       }).code;
+      if (/\brequire\s*\(/.test(code)) {
+        throw new Error('Compiler emitted a require() call, which browsers cannot run.');
+      }
     } catch (e) {
       return fail('Could not compile the app', e);
     }
