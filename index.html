@@ -8,6 +8,9 @@
 <meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="Hours" />
 <title>Hours</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap">
 <style>
   html, body { margin:0; padding:0; background:#f4efe6;
     font-family:-apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
@@ -363,7 +366,6 @@ function FocusTracker() {
   return (
     <div style={{ minHeight: "100vh", background: "#f4efe6", color: "#2b2823" }}>
       <style>{`
-        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap');
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         .ft-btn { transition: transform .12s ease, filter .12s ease; }
         .ft-btn:active { transform: scale(.97); filter: brightness(1.05); }
@@ -793,23 +795,19 @@ function BigBtn({ children, color, onClick, flex }) {
     if (err && typeof err === 'object') {
       detail = (err.name ? err.name + ': ' : '') + (err.message || '');
       if (err.stack) detail += '\n\n' + err.stack;
-    } else {
-      detail = String(err);
-    }
+    } else { detail = String(err); }
     el.innerHTML = '<h2>' + title + '</h2><pre>' + detail.replace(/</g, '&lt;') + '</pre>';
   }
 
   window.addEventListener('error', function (e) {
-    if (!bootEl()) return; // app already mounted; ignore
+    if (!bootEl()) return;
     fail('Error while running', e.error || e.message);
   });
 
   function loadWithFallback(urls, check, done) {
     var i = 0;
     (function attempt() {
-      if (i >= urls.length) {
-        return done(new Error('Blocked or unreachable:\n' + urls.join('\n')));
-      }
+      if (i >= urls.length) return done(new Error('Blocked or unreachable:\n' + urls.join('\n')));
       var s = document.createElement('script');
       s.src = urls[i++];
       s.crossOrigin = 'anonymous';
@@ -841,12 +839,18 @@ function BigBtn({ children, color, onClick, flex }) {
     var code;
     try {
       var raw = document.getElementById('app-source').textContent;
-      code = Babel.transform(raw, { presets: ['react'] }).code;
+      // safety net: drop any stray ES module statements
+      raw = raw.replace(/^\s*import[\s\S]*?;\s*$/gm, '')
+               .replace(/^\s*export\s+default\s+/gm, '');
+      code = Babel.transform(raw, {
+        presets: ['react'],
+        sourceType: 'script',
+        compact: false
+      }).code;
     } catch (e) {
       return fail('Could not compile the app', e);
     }
 
-    // Run as a real script tag so scoping and error reporting behave normally.
     var prefix = 'var useState=React.useState,useEffect=React.useEffect,useRef=React.useRef;\n';
     var suffix = '\n;(function(){var r=document.getElementById("root");' +
                  'r.innerHTML="";ReactDOM.createRoot(r).render(React.createElement(FocusTracker));})();';
@@ -857,13 +861,12 @@ function BigBtn({ children, color, onClick, flex }) {
     } catch (e) {
       return fail('Could not start the app', e);
     }
-    // If #boot is still there, the render never happened.
     setTimeout(function () {
       var el = bootEl();
       if (el && el.querySelector('h2').textContent.indexOf('Loading') === 0) {
-        fail('App did not mount', 'The code compiled and ran, but nothing rendered.');
+        fail('App did not mount', 'Code compiled and ran, but nothing rendered.');
       }
-    }, 1200);
+    }, 1500);
   }
 })();
 </script>
