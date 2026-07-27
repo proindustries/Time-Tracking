@@ -1,0 +1,785 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="theme-color" content="#f4efe6" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
+<meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-title" content="Hours" />
+<title>Hours</title>
+<style>
+  html, body { margin: 0; padding: 0; background: #f4efe6; }
+  #root { min-height: 100vh; }
+</style>
+<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel" data-presets="react">
+const { useState, useEffect, useRef } = React;
+
+
+
+// ── Time helpers ───────────────────────────────────────────────
+const MS = 60000;
+const WORK_TARGET = 480; // 8 billable hours, in minutes
+const WORK_BLOCK = 52;   // standard focus block length
+const STD_BREAK = 17;    // standard break length (the lunch credit)
+const RATIO = 17 / 52;   // break minutes earned per work minute (52/17 cycle)
+
+const fmtClock = (d) =>
+  d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+
+const fmtHM = (mins) => {
+  const sign = mins < 0 ? "-" : "";
+  let m = Math.round(Math.abs(mins));
+  const h = Math.floor(m / 60);
+  m = m % 60;
+  return `${sign}${h}h ${String(m).padStart(2, "0")}m`;
+};
+
+const fmtMS = (mins) => {
+  const total = Math.max(0, Math.round(mins * 60));
+  const m = Math.floor(total / 60);
+  const s = total % 60;
+  return `${m}:${String(s).padStart(2, "0")}`;
+};
+
+// What activity follows a given event type
+const followType = {
+  clockIn: "work",
+  endBreak: "work",
+  endLunch: "work",
+  endUnpaid: "work",
+  switchTicket: "work",
+  startBreak: "break",
+  startLunch: "lunch",
+  startUnpaid: "unpaid",
+  clockOut: "none",
+};
+
+const dateKey = (d) =>
+  `focusday:${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+
+const todayKey = () => dateKey(new Date());
+
+// Mon–Fri dates of the week containing `ref`
+const weekdaysOf = (ref) => {
+  const d = new Date(ref);
+  const dow = d.getDay();               // 0=Sun
+  const offset = dow === 0 ? -6 : 1 - dow; // back to Monday
+  const mon = new Date(d);
+  mon.setDate(d.getDate() + offset);
+  mon.setHours(0, 0, 0, 0);
+  return Array.from({ length: 5 }, (_, i) => {
+    const x = new Date(mon);
+    x.setDate(mon.getDate() + i);
+    return x;
+  });
+};
+
+// ── storage adapter ────────────────────────────────────────────
+const store = {
+  get: async (k) => { try { return localStorage.getItem(k); } catch (_) { return null; } },
+  set: async (k, v) => { try { localStorage.setItem(k, v); } catch (_) {} },
+  del: async (k) => { try { localStorage.removeItem(k); } catch (_) {} },
+};
+
+// ── event type sets ────────────────────────────────────────────
+const workStartTypes = new Set(["clockIn", "endBreak", "endLunch", "endUnpaid"]);
+// any event that begins a new ticket segment (fresh block OR mid-block switch)
+const ticketStartTypes = new Set([...workStartTypes, "switchTicket"]);
+// inserted block starts whose type can be swapped in the editor
+const blockStartEditable = new Set(["startBreak", "startLunch", "startUnpaid", "switchTicket"]);
+const typeOptions = [
+  { v: "startBreak", label: "Break" },
+  { v: "startLunch", label: "Lunch" },
+  { v: "startUnpaid", label: "Appointment" },
+  { v: "switchTicket", label: "Work" },
+];
+
+// Pure day computation — used for today (live) and for past days in the week roll-up.
+function computeDayStats(events, nowTs) {
+  const last = events[events.length - 1];
+  const done = last && last.type === "clockOut";
+  const endRef = done ? new Date(last.t).getTime() : nowTs;
+
+  let workMin = 0, breakMin = 0, lunchMin = 0, unpaidMin = 0;
+  for (let i = 0; i < events.length; i++) {
+    const start = new Date(events[i].t).getTime();
+    const isLast = i === events.length - 1;
+    const end = isLast ? endRef : new Date(events[i + 1].t).getTime();
+    const type = followType[events[i].type];
+    const dur = Math.max(0, (end - start) / MS);
+    if (type === "work") workMin += dur;
+    else if (type === "break") breakMin += dur;
+    else if (type === "lunch") lunchMin += dur;
+    else if (type === "unpaid") unpaidMin += dur;
+  }
+
+  const clockIn = events[0] ? new Date(events[0].t).getTime() : null;
+  const breakEarned = workMin * RATIO;
+  const rawBreakCredit = Math.max(0, breakEarned - breakMin);
+  const lunchOverage = Math.max(0, lunchMin - STD_BREAK);
+  const creditAppliedToLunch = Math.min(rawBreakCredit, lunchOverage);
+  const nonBillableLunch = lunchOverage - creditAppliedToLunch;
+  const breakBalance = rawBreakCredit - creditAppliedToLunch;
+  const billable = clockIn ? (endRef - clockIn) / MS - nonBillableLunch - unpaidMin : 0;
+
+  const tickets = {};
+  for (let i = 0; i < events.length; i++) {
+    if (!ticketStartTypes.has(events[i].type)) continue;
+    const ticket = events[i].ticket || "(untagged)";
+    const start = new Date(events[i].t).getTime();
+    const isLast = i === events.length - 1;
+    const end = isLast ? endRef : new Date(events[i + 1].t).getTime();
+    tickets[ticket] = (tickets[ticket] || 0) + Math.max(0, (end - start) / MS);
+  }
+
+  return { workMin, breakMin, lunchMin, unpaidMin, clockIn, billable,
+           nonBillableLunch, lunchOverage, creditAppliedToLunch, breakBalance, tickets, done };
+}
+
+function FocusTracker() {
+  const [events, setEvents] = useState([]); // {type, t: ISO string, ticket?: string}
+  const [now, setNow] = useState(Date.now());
+  const [loaded, setLoaded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [ticketInput, setTicketInput] = useState("");
+  const [week, setWeek] = useState([]);       // [{date, key, stats}]
+  const [showWeek, setShowWeek] = useState(false);
+  const storageKey = useRef(todayKey());
+
+  // live tick
+  useEffect(() => {
+    const id = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(id);
+  }, []);
+
+  // load persisted day
+  useEffect(() => {
+    (async () => {
+      const raw = await store.get(storageKey.current);
+      if (raw) { try { setEvents(JSON.parse(raw)); } catch (_) {} }
+      setLoaded(true);
+    })();
+  }, []);
+
+  // persist on change
+  useEffect(() => {
+    if (!loaded) return;
+    (async () => {
+      await store.set(storageKey.current, JSON.stringify(events));
+    })();
+  }, [events, loaded]);
+
+  // load the Mon–Fri week roll-up (re-runs as today's events change)
+  useEffect(() => {
+    if (!loaded) return;
+    let cancelled = false;
+    (async () => {
+      const days = weekdaysOf(new Date());
+      const out = [];
+      for (const d of days) {
+        const k = dateKey(d);
+        let evs = [];
+        if (k === storageKey.current) {
+          evs = events;
+        } else {
+          const raw = await store.get(k);
+          if (raw) { try { evs = JSON.parse(raw); } catch (_) { evs = []; } }
+        }
+        out.push({
+          date: d,
+          key: k,
+          isToday: k === storageKey.current,
+          stats: evs.length ? computeDayStats(evs, Date.now()) : null,
+        });
+      }
+      if (!cancelled) setWeek(out);
+    })();
+    return () => { cancelled = true; };
+  }, [events, loaded]);
+
+  const last = events[events.length - 1];
+  const state = !last
+    ? "idle"
+    : last.type === "clockOut"
+    ? "done"
+    : followType[last.type] === "work"
+    ? "working"
+    : followType[last.type] === "break"
+    ? "onBreak"
+    : followType[last.type] === "unpaid"
+    ? "onUnpaid"
+    : "onLunch";
+
+  const push = (type) =>
+    setEvents((e) => [
+      ...e,
+      { type, t: new Date().toISOString(), ...(workStartTypes.has(type) && ticketInput ? { ticket: ticketInput.trim() } : {}) }
+    ]);
+
+  // update ticket on the most recent ticket-segment start
+  const updateCurrentTicket = (val) => {
+    setTicketInput(val);
+    setEvents((e) => {
+      const copy = [...e];
+      for (let i = copy.length - 1; i >= 0; i--) {
+        if (ticketStartTypes.has(copy[i].type)) {
+          copy[i] = { ...copy[i], ticket: val.trim() };
+          break;
+        }
+      }
+      return copy;
+    });
+  };
+
+  // start a new ticket segment without resetting the focus block
+  const switchTicket = () => {
+    setEvents((e) => [...e, { type: "switchTicket", t: new Date().toISOString() }]);
+    setTicketInput("");
+  };
+
+  const editTime = (i, hhmm) => {
+    setEvents((e) => {
+      const copy = [...e];
+      const base = new Date(copy[i].t);
+      const [h, m] = hhmm.split(":").map(Number);
+      base.setHours(h, m, 0, 0);
+      copy[i] = { ...copy[i], t: base.toISOString() };
+      return copy;
+    });
+  };
+
+  const editEventTicket = (i, val) => {
+    setEvents((e) => {
+      const copy = [...e];
+      copy[i] = { ...copy[i], ticket: val.trim() };
+      return copy;
+    });
+  };
+
+  // insert a block (start + resume pair) into the interval that follows event i
+  const insertBlock = (i) => {
+    setEvents((e) => {
+      const copy = [...e];
+      const leftT = new Date(copy[i].t).getTime();
+      const rightT = i + 1 < copy.length ? new Date(copy[i + 1].t).getTime() : Date.now();
+      const gap = Math.max(0, rightT - leftT);
+      const s = new Date(leftT + gap / 3);
+      const en = new Date(leftT + (2 * gap) / 3);
+      const activity = followType[copy[i].type]; // activity of the interval being split
+      const resumeMap = { work: "endBreak", break: "startBreak", lunch: "startLunch", unpaid: "startUnpaid" };
+      const resumeType = resumeMap[activity] || "endBreak";
+      copy.splice(i + 1, 0,
+        { type: "startBreak", t: s.toISOString() },
+        { type: resumeType, t: en.toISOString() });
+      return copy;
+    });
+  };
+
+  const changeType = (i, newType) => {
+    setEvents((e) => {
+      const copy = [...e];
+      copy[i] = { ...copy[i], type: newType };
+      return copy;
+    });
+  };
+
+  const deleteEvent = (i) => {
+    setEvents((e) => e.filter((_, idx) => idx !== i));
+  };
+
+  const reset = () => {
+    setEvents([]);
+    setEditing(false);
+    try { store.del(storageKey.current); } catch (_) {}
+  };
+
+  // ── compute durations ─────────────────────────────────────────
+  const stats = computeDayStats(events, now);
+  const { workMin, breakMin, lunchMin, unpaidMin, clockIn, billable,
+          nonBillableLunch, lunchOverage, creditAppliedToLunch, breakBalance } = stats;
+  const ticketSummary = stats.tickets;
+
+  // current interval (for the live header timer)
+  let currentStart = null;
+  if (events.length) {
+    const li = events.length - 1;
+    if (followType[events[li].type] !== "none") currentStart = new Date(events[li].t).getTime();
+  }
+
+  const remaining = WORK_TARGET - billable;
+
+  // projected end-of-day to hit exactly 8 billable hours
+  const eod = clockIn ? new Date(clockIn + (WORK_TARGET + nonBillableLunch + unpaidMin) * MS) : null;
+
+  // start of the current FOCUS block — ignores mid-block ticket switches
+  let focusBlockStart = null;
+  if (state === "working") {
+    for (let i = events.length - 1; i >= 0; i--) {
+      if (workStartTypes.has(events[i].type)) {
+        focusBlockStart = new Date(events[i].t).getTime();
+        break;
+      }
+    }
+  }
+
+  // timer shown in the header: focus-block elapsed while working, else current interval
+  const headerStart = state === "working" ? focusBlockStart : currentStart;
+  const elapsedCurrent = headerStart ? (now - headerStart) / MS : 0;
+
+  // if the 52-min block holds, when would the break start / how long until then
+  const breakStartAt =
+    state === "working" && focusBlockStart ? new Date(focusBlockStart + WORK_BLOCK * MS) : null;
+  const minsToBreak = breakStartAt ? (breakStartAt.getTime() - now) / MS : 0;
+
+  // when on a break, when would the standard 17m break be done
+  const breakEndAt =
+    state === "onBreak" && currentStart ? new Date(currentStart + STD_BREAK * MS) : null;
+  const minsToBreakEnd = breakEndAt ? (breakEndAt.getTime() - now) / MS : 0;
+
+  // ── theme ─────────────────────────────────────────────────────
+  const accent =
+    state === "working" ? "#c2613c" :
+    state === "onBreak" ? "#5f8a6f" :
+    state === "onLunch" ? "#b88a2e" :
+    state === "onUnpaid" ? "#867a93" : "#8a8170";
+
+  const statusLabel =
+    state === "idle" ? "Ready to start" :
+    state === "working" ? "Focused" :
+    state === "onBreak" ? "On a break" :
+    state === "onLunch" ? "At lunch" :
+    state === "onUnpaid" ? "Stepped out (unpaid)" : "Day complete";
+
+  return (
+    <div style={{ minHeight: "100vh", background: "#f4efe6", color: "#2b2823" }}>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap');
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        .ft-btn { transition: transform .12s ease, filter .12s ease; }
+        .ft-btn:active { transform: scale(.97); filter: brightness(1.05); }
+        .ft-fade { animation: ftfade .5s ease both; }
+        @keyframes ftfade { from { opacity:0; transform: translateY(8px);} to {opacity:1; transform:none;} }
+      `}</style>
+
+      <div style={{ maxWidth: 460, margin: "0 auto", padding: "28px 20px 48px", fontFamily: "'Hanken Grotesk', sans-serif" }}>
+        {/* Header */}
+        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 22 }}>
+          <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 26, margin: 0, letterSpacing: "-0.02em" }}>
+            Hours<span style={{ color: accent }}>.</span>
+          </h1>
+          <span style={{ fontSize: 13, opacity: .6 }}>
+            {new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}
+          </span>
+        </div>
+
+        {/* Status card */}
+        <div className="ft-fade" style={{
+          background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 20,
+          padding: "24px 22px", boxShadow: "0 10px 30px -18px rgba(60,45,25,.4)", marginBottom: 16,
+        }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
+            <span style={{ width: 9, height: 9, borderRadius: "50%", background: accent,
+              boxShadow: state !== "idle" && state !== "done" ? `0 0 0 4px ${accent}22` : "none" }} />
+            <span style={{ fontSize: 13, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".08em", color: accent }}>
+              {statusLabel}
+            </span>
+            {(state === "working" || state === "onBreak" || state === "onLunch" || state === "onUnpaid") && (
+              <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", fontSize: 15, fontWeight: 600, opacity: .7 }}>
+                {fmtMS(elapsedCurrent)}
+              </span>
+            )}
+          </div>
+
+          <div style={{ display: "flex", alignItems: "flex-end", gap: 6 }}>
+            <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 52, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+              {clockIn ? fmtHM(billable) : "0h 00m"}
+            </span>
+          </div>
+          <div style={{ fontSize: 13, opacity: .6, marginTop: 4 }}>billable so far &middot; target 8h 00m</div>
+
+          {breakStartAt && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 7, marginTop: 12,
+              padding: "8px 12px", background: "#f3f6f1", border: "1px solid #dfe8df",
+              borderRadius: 10, fontSize: 13,
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#5f8a6f", flexShrink: 0 }} />
+              <span style={{ opacity: .8 }}>
+                Break at <strong style={{ fontVariantNumeric: "tabular-nums" }}>{fmtClock(breakStartAt)}</strong> if the block holds
+              </span>
+              <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", fontWeight: 600,
+                color: minsToBreak >= 0 ? "#5f8a6f" : "#c2613c" }}>
+                {minsToBreak >= 0 ? `${Math.ceil(minsToBreak)}m` : `+${Math.ceil(-minsToBreak)}m`}
+              </span>
+            </div>
+          )}
+
+          {state === "working" && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em", opacity: .5, fontWeight: 600, marginBottom: 5 }}>
+                Current ticket
+              </div>
+              <input
+                type="text"
+                placeholder="e.g. PROJ-1234"
+                value={ticketInput}
+                onChange={(e) => updateCurrentTicket(e.target.value)}
+                style={{
+                  width: "100%", fontFamily: "inherit", fontSize: 15, fontWeight: 600,
+                  padding: "9px 12px", border: "1px solid #d9cfbd", borderRadius: 10,
+                  background: "#fff", color: "#2b2823", outline: "none",
+                  letterSpacing: ".02em",
+                }}
+              />
+              <button className="ft-btn" onClick={switchTicket} style={{
+                marginTop: 8, width: "100%", background: "#fbf6ee", color: "#c2613c",
+                border: "1px dashed #d9b9a3", borderRadius: 10, padding: "9px 12px",
+                fontSize: 13, fontWeight: 700, fontFamily: "inherit", cursor: "pointer",
+              }}>
+                + New ticket block &middot; keep focus timer
+              </button>
+            </div>
+          )}
+
+          {breakEndAt && (
+            <div style={{
+              display: "flex", alignItems: "center", gap: 7, marginTop: 12,
+              padding: "8px 12px", background: "#f8f0ea", border: "1px solid #ecdcd0",
+              borderRadius: 10, fontSize: 13,
+            }}>
+              <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#c2613c", flexShrink: 0 }} />
+              <span style={{ opacity: .8 }}>
+                Break done at <strong style={{ fontVariantNumeric: "tabular-nums" }}>{fmtClock(breakEndAt)}</strong> &middot; 17 min
+              </span>
+              <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", fontWeight: 600,
+                color: minsToBreakEnd >= 0 ? "#c2613c" : "#b88a2e" }}>
+                {minsToBreakEnd >= 0 ? `${Math.ceil(minsToBreakEnd)}m` : `+${Math.ceil(-minsToBreakEnd)}m`}
+              </span>
+            </div>
+          )}
+
+          {/* progress */}
+          <div style={{ height: 8, borderRadius: 99, background: "#ece4d4", marginTop: 16, overflow: "hidden" }}>
+            <div style={{
+              height: "100%", borderRadius: 99, background: accent,
+              width: `${Math.min(100, Math.max(0, (billable / WORK_TARGET) * 100))}%`,
+              transition: "width .4s ease",
+            }} />
+          </div>
+        </div>
+
+        {/* Stats grid */}
+        {clockIn && (
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
+            <Stat label={remaining >= 0 ? "Remaining" : "Overtime"}
+                  value={fmtHM(Math.abs(remaining))}
+                  tone={remaining >= 0 ? "#2b2823" : "#c2613c"} />
+            <Stat label={state === "done" ? "Clocked out" : "Clock out at"}
+                  value={state === "done" ? fmtClock(new Date(last.t)) : (eod ? fmtClock(eod) : "—")}
+                  tone="#2b2823" />
+            <Stat label="Break credit"
+                  value={`${breakBalance >= 0 ? "+" : ""}${Math.round(breakBalance)}m`}
+                  sub={creditAppliedToLunch > 0 ? `${Math.round(creditAppliedToLunch)}m used on lunch` : "available"}
+                  tone={breakBalance >= 0 ? "#5f8a6f" : "#b88a2e"} />
+            <Stat label="Lunch (unpaid)"
+                  value={`${Math.round(nonBillableLunch)}m`}
+                  sub={lunchMin > 0 ? `${Math.round(lunchOverage)}m overage − credit` : "no lunch yet"}
+                  tone="#2b2823" />
+            {unpaidMin > 0 && (
+              <Stat label="Stepped out"
+                    value={`${Math.round(unpaidMin)}m`}
+                    sub="unpaid, pushed EOD"
+                    tone="#867a93" />
+            )}
+          </div>
+        )}
+
+        {/* Controls */}
+        <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
+          {state === "idle" && (
+            <BigBtn color="#c2613c" onClick={() => push("clockIn")}>Clock In</BigBtn>
+          )}
+          {state === "working" && (
+            <>
+              <div style={{ display: "flex", gap: 10 }}>
+                <BigBtn color="#5f8a6f" flex onClick={() => push("startBreak")}>Start Break</BigBtn>
+                <BigBtn color="#b88a2e" flex onClick={() => push("startLunch")}>Start Lunch</BigBtn>
+              </div>
+              <div style={{ display: "flex", gap: 10 }}>
+                <BigBtn color="#867a93" flex onClick={() => push("startUnpaid")}>Step Out (Unpaid)</BigBtn>
+                <BigBtn color="#2b2823" flex onClick={() => push("clockOut")}>Clock Out</BigBtn>
+              </div>
+            </>
+          )}
+          {state === "onBreak" && (
+            <BigBtn color="#c2613c" onClick={() => { push("endBreak"); }}>End Break &middot; Back to Work</BigBtn>
+          )}
+          {state === "onLunch" && (
+            <BigBtn color="#c2613c" onClick={() => { push("endLunch"); }}>End Lunch &middot; Back to Work</BigBtn>
+          )}
+          {state === "onUnpaid" && (
+            <BigBtn color="#c2613c" onClick={() => { push("endUnpaid"); }}>End Appointment &middot; Back to Work</BigBtn>
+          )}
+          {state === "done" && (
+            <BigBtn color="#c2613c" onClick={reset}>Start a New Day</BigBtn>
+          )}
+        </div>
+
+        {/* Timeline */}
+        {events.length > 0 && (
+          <div className="ft-fade">
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+              <h2 style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 17, margin: 0 }}>Today</h2>
+              <button onClick={() => setEditing((v) => !v)}
+                style={{ background: "none", border: "none", color: accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                {editing ? "Done" : "Edit"}
+              </button>
+            </div>
+            <div style={{ background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 16, overflow: "hidden" }}>
+              {events.map((ev, i) => {
+                const d = new Date(ev.t);
+                const labelMap = {
+                  clockIn: "Clocked in", startBreak: "Break started", endBreak: "Back to work",
+                  startLunch: "Lunch started", endLunch: "Back from lunch", clockOut: "Clocked out",
+                  startUnpaid: "Stepped out", endUnpaid: "Back to work", switchTicket: "Switched ticket",
+                };
+                const dotMap = {
+                  clockIn: "#c2613c", endBreak: "#c2613c", endLunch: "#c2613c", endUnpaid: "#c2613c",
+                  startBreak: "#5f8a6f", startLunch: "#b88a2e", startUnpaid: "#867a93", clockOut: "#2b2823",
+                  switchTicket: "#c2613c",
+                };
+                return (
+                  <div key={i} style={{
+                    padding: "12px 16px",
+                    borderTop: i ? "1px solid #f0e9da" : "none",
+                  }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span style={{ width: 8, height: 8, borderRadius: "50%", background: dotMap[ev.type], flexShrink: 0 }} />
+                      {editing && blockStartEditable.has(ev.type) ? (
+                        <select value={ev.type} onChange={(e) => changeType(i, e.target.value)}
+                          style={{ fontFamily: "inherit", fontSize: 14, fontWeight: 600, padding: "3px 6px",
+                            border: "1px solid #d9cfbd", borderRadius: 8, background: "#fff", color: "#2b2823" }}>
+                          {typeOptions.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
+                        </select>
+                      ) : (
+                        <span style={{ fontSize: 14, fontWeight: 500 }}>{labelMap[ev.type]}</span>
+                      )}
+                      {editing ? (
+                        <input
+                          type="time"
+                          value={`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`}
+                          onChange={(e) => editTime(i, e.target.value)}
+                          style={{ marginLeft: "auto", fontFamily: "inherit", fontSize: 14, padding: "2px 6px",
+                            border: "1px solid #d9cfbd", borderRadius: 8, background: "#fff", color: "#2b2823" }}
+                        />
+                      ) : (
+                        <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 600, opacity: .75 }}>
+                          {fmtClock(d)}
+                        </span>
+                      )}
+                      {editing && ev.type !== "clockIn" && (
+                        <button onClick={() => deleteEvent(i)} aria-label="Delete"
+                          style={{ background: "none", border: "none", color: "#c98b7a", fontSize: 18,
+                            lineHeight: 1, cursor: "pointer", padding: "0 2px", fontFamily: "inherit" }}>
+                          &times;
+                        </button>
+                      )}
+                    </div>
+                    {ticketStartTypes.has(ev.type) && (
+                      editing ? (
+                        <input
+                          type="text"
+                          placeholder="ticket #"
+                          value={ev.ticket || ""}
+                          onChange={(e) => editEventTicket(i, e.target.value)}
+                          style={{ marginTop: 8, marginLeft: 20, width: "calc(100% - 20px)", fontFamily: "inherit",
+                            fontSize: 13, fontWeight: 600, padding: "6px 10px", border: "1px solid #d9cfbd",
+                            borderRadius: 8, background: "#fff", color: "#2b2823", outline: "none" }}
+                        />
+                      ) : ev.ticket ? (
+                        <div style={{ marginTop: 4, marginLeft: 20, fontSize: 13, fontWeight: 600, color: "#c2613c" }}>
+                          {ev.ticket}
+                        </div>
+                      ) : null
+                    )}
+                    {editing && followType[ev.type] !== "none" && (
+                      <button onClick={() => insertBlock(i)}
+                        style={{ marginTop: 10, marginLeft: 20, background: "#fbf6ee", color: "#8a8170",
+                          border: "1px dashed #d9cfbd", borderRadius: 8, padding: "5px 10px", fontSize: 12,
+                          fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                        + Insert block below
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {events.length > 0 && (
+              <button onClick={reset}
+                style={{ display: "block", margin: "16px auto 0", background: "none", border: "none",
+                  color: "#a8917a", fontSize: 13, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>
+                Reset day
+              </button>
+            )}
+          </div>
+        )}
+
+        {/* Ticket Summary */}
+        {Object.keys(ticketSummary).length > 0 && (
+          <div className="ft-fade" style={{ marginTop: 24 }}>
+            <h2 style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 17, margin: "0 0 10px" }}>Ticket Summary</h2>
+            <div style={{ background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 16, overflow: "hidden" }}>
+              {Object.entries(ticketSummary)
+                .sort((a, b) => b[1] - a[1])
+                .map(([ticket, mins], i, arr) => (
+                  <div key={ticket} style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "13px 16px", borderTop: i ? "1px solid #f0e9da" : "none",
+                  }}>
+                    <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{ticket}</span>
+                    <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
+                      fontFamily: "'Fraunces', serif", color: "#c2613c" }}>
+                      {fmtHM(mins)}
+                    </span>
+                  </div>
+                ))}
+              {/* Total row */}
+              <div style={{
+                display: "flex", alignItems: "center", gap: 12,
+                padding: "13px 16px", borderTop: "2px solid #e4dcce",
+                background: "#f8f2e8",
+              }}>
+                <span style={{ fontSize: 14, fontWeight: 700, flex: 1, opacity: .6, textTransform: "uppercase", letterSpacing: ".05em", fontSize: 12 }}>Total tagged</span>
+                <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
+                  fontFamily: "'Fraunces', serif" }}>
+                  {fmtHM(Object.values(ticketSummary).reduce((a, b) => a + b, 0))}
+                </span>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Week Summary */}
+        {week.length > 0 && (() => {
+          const weekBillable = week.reduce((a, d) => a + (d.stats?.billable || 0), 0);
+          const weekTickets = {};
+          for (const d of week) {
+            if (!d.stats) continue;
+            for (const [t, m] of Object.entries(d.stats.tickets)) {
+              weekTickets[t] = (weekTickets[t] || 0) + m;
+            }
+          }
+          const WEEK_TARGET = WORK_TARGET * 5;
+          const dayNames = ["Mon", "Tue", "Wed", "Thu", "Fri"];
+          return (
+            <div className="ft-fade" style={{ marginTop: 24 }}>
+              <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
+                <h2 style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 17, margin: 0 }}>This Week</h2>
+                <button onClick={() => setShowWeek((v) => !v)}
+                  style={{ background: "none", border: "none", color: accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
+                  {showWeek ? "Hide tickets" : "Show tickets"}
+                </button>
+              </div>
+
+              <div style={{ background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 16, overflow: "hidden" }}>
+                {week.map((d, i) => {
+                  const mins = d.stats?.billable || 0;
+                  const pct = Math.min(100, (mins / WORK_TARGET) * 100);
+                  return (
+                    <div key={d.key} style={{
+                      display: "flex", alignItems: "center", gap: 12,
+                      padding: "12px 16px", borderTop: i ? "1px solid #f0e9da" : "none",
+                      background: d.isToday ? "#fdf8f0" : "transparent",
+                    }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, width: 34,
+                        color: d.isToday ? accent : "#2b2823", opacity: d.stats ? 1 : .4 }}>
+                        {dayNames[i]}
+                      </span>
+                      <div style={{ flex: 1, height: 6, borderRadius: 99, background: "#ece4d4", overflow: "hidden" }}>
+                        <div style={{ height: "100%", borderRadius: 99, width: `${pct}%`,
+                          background: d.isToday ? accent : "#c9bda6", transition: "width .4s ease" }} />
+                      </div>
+                      <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 13, fontWeight: 600,
+                        minWidth: 58, textAlign: "right", opacity: d.stats ? .85 : .35 }}>
+                        {d.stats ? fmtHM(mins) : "—"}
+                      </span>
+                    </div>
+                  );
+                })}
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "13px 16px", borderTop: "2px solid #e4dcce", background: "#f8f2e8",
+                }}>
+                  <span style={{ flex: 1, fontSize: 12, fontWeight: 700, opacity: .6,
+                    textTransform: "uppercase", letterSpacing: ".05em" }}>
+                    Week total
+                  </span>
+                  <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 15, fontWeight: 700,
+                    fontFamily: "'Fraunces', serif" }}>
+                    {fmtHM(weekBillable)}
+                  </span>
+                  <span style={{ fontSize: 12, opacity: .5 }}>/ {fmtHM(WEEK_TARGET)}</span>
+                </div>
+              </div>
+
+              {showWeek && Object.keys(weekTickets).length > 0 && (
+                <div style={{ background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 16,
+                  overflow: "hidden", marginTop: 12 }}>
+                  <div style={{ padding: "10px 16px", fontSize: 12, fontWeight: 700, opacity: .55,
+                    textTransform: "uppercase", letterSpacing: ".06em", borderBottom: "1px solid #f0e9da" }}>
+                    Tickets this week
+                  </div>
+                  {Object.entries(weekTickets).sort((a, b) => b[1] - a[1]).map(([t, m], i) => (
+                    <div key={t} style={{ display: "flex", alignItems: "center", gap: 12,
+                      padding: "12px 16px", borderTop: i ? "1px solid #f0e9da" : "none" }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{t}</span>
+                      <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
+                        fontFamily: "'Fraunces', serif", color: "#c2613c" }}>{fmtHM(m)}</span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          );
+        })()}
+      </div>
+    </div>
+  );
+}
+
+function Stat({ label, value, sub, tone }) {
+  return (
+    <div style={{ background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 16, padding: "14px 16px" }}>
+      <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em", opacity: .55, fontWeight: 600 }}>{label}</div>
+      <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 24, marginTop: 4, color: tone, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      {sub && <div style={{ fontSize: 12, opacity: .5, marginTop: 1 }}>{sub}</div>}
+    </div>
+  );
+}
+
+function BigBtn({ children, color, onClick, flex }) {
+  return (
+    <button className="ft-btn" onClick={onClick} style={{
+      flex: flex ? 1 : "none", background: color, color: "#fff8ee", border: "none",
+      borderRadius: 14, padding: "16px 18px", fontSize: 16, fontWeight: 700,
+      fontFamily: "'Hanken Grotesk', sans-serif", cursor: "pointer", letterSpacing: ".01em",
+      boxShadow: `0 8px 20px -10px ${color}aa`,
+    }}>
+      {children}
+    </button>
+  );
+}
+
+
+const root = ReactDOM.createRoot(document.getElementById('root'));
+root.render(<FocusTracker />);
+</script>
+</body>
+</html>
