@@ -2,25 +2,28 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
 <meta name="theme-color" content="#f4efe6" />
-<meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="mobile-web-app-capable" content="yes" />
+<meta name="apple-mobile-web-app-capable" content="yes" />
 <meta name="apple-mobile-web-app-title" content="Hours" />
 <title>Hours</title>
 <style>
-  html, body { margin: 0; padding: 0; background: #f4efe6; }
-  #root { min-height: 100vh; }
+  html, body { margin:0; padding:0; background:#f4efe6;
+    font-family: -apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
+  #root { min-height:100vh; }
+  #boot { padding:28px 22px; color:#2b2823; }
+  #boot h2 { font-size:17px; margin:0 0 8px; }
+  #boot pre { white-space:pre-wrap; word-break:break-word; font-size:12px;
+    background:#fffdf8; border:1px solid #e4dcce; border-radius:12px; padding:12px; color:#8a4b32; }
+  .muted { opacity:.6; font-size:13px; }
 </style>
-<script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
-<script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
-<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
 <body>
-<div id="root"></div>
-<script type="text/babel" data-presets="react">
-const { useState, useEffect, useRef } = React;
+<div id="root"><div id="boot"><h2>Loading Hours&hellip;</h2>
+<div class="muted">If this message stays up, the details will appear below.</div></div></div>
 
+<script type="text/plain" id="app-source">
 
 
 // ── Time helpers ───────────────────────────────────────────────
@@ -777,9 +780,84 @@ function BigBtn({ children, color, onClick, flex }) {
   );
 }
 
+</script>
 
-const root = ReactDOM.createRoot(document.getElementById('root'));
-root.render(<FocusTracker />);
+<script>
+(function () {
+  var bootEl = document.getElementById('boot');
+
+  function fail(title, detail) {
+    if (!bootEl) return;
+    bootEl.innerHTML = '<h2>' + title + '</h2><pre>' + String(detail) + '</pre>';
+  }
+
+  window.addEventListener('error', function (e) {
+    fail('Something errored', (e.message || e.error || 'unknown') +
+      (e.filename ? '\n\n' + e.filename + ':' + e.lineno : ''));
+  });
+
+  // Load a script, trying each URL in turn.
+  function loadWithFallback(urls, check, done) {
+    var i = 0;
+    (function attempt() {
+      if (i >= urls.length) {
+        return done(new Error('Could not load any of:\n' + urls.join('\n') +
+          '\n\nThis usually means the network blocked them (offline, ad-blocker, or strict tracking protection).'));
+      }
+      var url = urls[i++];
+      var s = document.createElement('script');
+      s.src = url;
+      s.crossOrigin = 'anonymous';
+      s.onload = function () { check() ? done(null) : attempt(); };
+      s.onerror = attempt;
+      document.head.appendChild(s);
+    })();
+  }
+
+  var REACT = [
+    'https://unpkg.com/react@18/umd/react.production.min.js',
+    'https://cdn.jsdelivr.net/npm/react@18/umd/react.production.min.js'
+  ];
+  var REACTDOM = [
+    'https://unpkg.com/react-dom@18/umd/react-dom.production.min.js',
+    'https://cdn.jsdelivr.net/npm/react-dom@18/umd/react-dom.production.min.js'
+  ];
+  var BABEL = [
+    'https://unpkg.com/@babel/standalone/babel.min.js',
+    'https://cdn.jsdelivr.net/npm/@babel/standalone/babel.min.js'
+  ];
+
+  loadWithFallback(REACT, function () { return !!window.React; }, function (err) {
+    if (err) return fail('Could not load React', err.message);
+    loadWithFallback(REACTDOM, function () { return !!window.ReactDOM; }, function (err2) {
+      if (err2) return fail('Could not load ReactDOM', err2.message);
+      loadWithFallback(BABEL, function () { return !!window.Babel; }, function (err3) {
+        if (err3) return fail('Could not load Babel', err3.message);
+        start();
+      });
+    });
+  });
+
+  function start() {
+    var code;
+    try {
+      var raw = document.getElementById('app-source').textContent;
+      code = Babel.transform(raw, { presets: ['react'] }).code;
+    } catch (e) {
+      return fail('Could not compile the app', e.message);
+    }
+    try {
+      var useState = React.useState, useEffect = React.useEffect, useRef = React.useRef;
+      var FocusTracker = new Function('React', 'useState', 'useEffect', 'useRef',
+        code + '\nreturn FocusTracker;')(React, useState, useEffect, useRef);
+      var rootEl = document.getElementById('root');
+      rootEl.innerHTML = '';
+      ReactDOM.createRoot(rootEl).render(React.createElement(FocusTracker));
+    } catch (e) {
+      return fail('Could not start the app', (e && e.stack) || e);
+    }
+  }
+})();
 </script>
 </body>
 </html>
