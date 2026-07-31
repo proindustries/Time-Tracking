@@ -10,7 +10,7 @@
 <title>Hours</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,400;9..144,600;9..144,800&family=Hanken+Grotesk:wght@400;500;600;700&display=swap">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap">
 <style>
   html, body { margin:0; padding:0; background:#f4efe6;
     font-family:-apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
@@ -373,10 +373,10 @@ function FocusTracker() {
         @keyframes ftfade { from { opacity:0; transform: translateY(8px);} to {opacity:1; transform:none;} }
       `}</style>
 
-      <div style={{ maxWidth: 460, margin: "0 auto", padding: "28px 20px 48px", fontFamily: "'Hanken Grotesk', sans-serif" }}>
+      <div style={{ maxWidth: 460, margin: "0 auto", padding: "28px 20px 48px", fontFamily: "'Inter', sans-serif" }}>
         {/* Header */}
         <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 22 }}>
-          <h1 style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 26, margin: 0, letterSpacing: "-0.02em" }}>
+          <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: 26, margin: 0, letterSpacing: "-0.02em" }}>
             Hours<span style={{ color: accent }}>.</span>
           </h1>
           <span style={{ fontSize: 13, opacity: .6 }}>
@@ -403,7 +403,7 @@ function FocusTracker() {
           </div>
 
           <div style={{ display: "flex", alignItems: "flex-end", gap: 6 }}>
-            <span style={{ fontFamily: "'Fraunces', serif", fontWeight: 800, fontSize: 52, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
+            <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: 52, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
               {clockIn ? fmtHM(billable) : "0h 00m"}
             </span>
           </div>
@@ -541,7 +541,7 @@ function FocusTracker() {
         {events.length > 0 && (
           <div className="ft-fade">
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-              <h2 style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 17, margin: 0 }}>Today</h2>
+              <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, margin: 0 }}>Today</h2>
               <button onClick={() => setEditing((v) => !v)}
                 style={{ background: "none", border: "none", color: accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
                 {editing ? "Done" : "Edit"}
@@ -639,7 +639,7 @@ function FocusTracker() {
         {/* Ticket Summary */}
         {Object.keys(ticketSummary).length > 0 && (
           <div className="ft-fade" style={{ marginTop: 24 }}>
-            <h2 style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 17, margin: "0 0 10px" }}>Ticket Summary</h2>
+            <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, margin: "0 0 10px" }}>Ticket Summary</h2>
             <div style={{ background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 16, overflow: "hidden" }}>
               {Object.entries(ticketSummary)
                 .sort((a, b) => b[1] - a[1])
@@ -650,7 +650,7 @@ function FocusTracker() {
                   }}>
                     <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{ticket}</span>
                     <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
-                      fontFamily: "'Fraunces', serif", color: "#c2613c" }}>
+                      fontFamily: "'Space Grotesk', sans-serif", color: "#c2613c" }}>
                       {fmtHM(mins)}
                     </span>
                   </div>
@@ -663,7 +663,7 @@ function FocusTracker() {
               }}>
                 <span style={{ fontSize: 14, fontWeight: 700, flex: 1, opacity: .6, textTransform: "uppercase", letterSpacing: ".05em", fontSize: 12 }}>Total tagged</span>
                 <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
-                  fontFamily: "'Fraunces', serif" }}>
+                  fontFamily: "'Space Grotesk', sans-serif" }}>
                   {fmtHM(Object.values(ticketSummary).reduce((a, b) => a + b, 0))}
                 </span>
               </div>
@@ -686,10 +686,10 @@ function FocusTracker() {
           return (
             <div className="ft-fade" style={{ marginTop: 24 }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
-                <h2 style={{ fontFamily: "'Fraunces', serif", fontWeight: 600, fontSize: 17, margin: 0 }}>This Week</h2>
+                <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, margin: 0 }}>This Week</h2>
                 <button onClick={() => setShowWeek((v) => !v)}
                   style={{ background: "none", border: "none", color: accent, fontSize: 13, fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
-                  {showWeek ? "Hide tickets" : "Show tickets"}
+                  {showWeek ? "Hide daily tickets" : "Show daily tickets"}
                 </button>
               </div>
 
@@ -727,28 +727,44 @@ function FocusTracker() {
                     Week total
                   </span>
                   <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 15, fontWeight: 700,
-                    fontFamily: "'Fraunces', serif" }}>
+                    fontFamily: "'Space Grotesk', sans-serif" }}>
                     {fmtHM(weekBillable)}
                   </span>
                   <span style={{ fontSize: 12, opacity: .5 }}>/ {fmtHM(WEEK_TARGET)}</span>
                 </div>
               </div>
 
-              {showWeek && Object.keys(weekTickets).length > 0 && (
-                <div style={{ background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 16,
-                  overflow: "hidden", marginTop: 12 }}>
-                  <div style={{ padding: "10px 16px", fontSize: 12, fontWeight: 700, opacity: .55,
-                    textTransform: "uppercase", letterSpacing: ".06em", borderBottom: "1px solid #f0e9da" }}>
-                    Tickets this week
-                  </div>
-                  {Object.entries(weekTickets).sort((a, b) => b[1] - a[1]).map(([t, m], i) => (
-                    <div key={t} style={{ display: "flex", alignItems: "center", gap: 12,
-                      padding: "12px 16px", borderTop: i ? "1px solid #f0e9da" : "none" }}>
-                      <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{t}</span>
-                      <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
-                        fontFamily: "'Fraunces', serif", color: "#c2613c" }}>{fmtHM(m)}</span>
+              {showWeek && (
+                <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
+                  {week.filter((d) => d.stats && Object.keys(d.stats.tickets).length > 0).map((d, di) => (
+                    <div key={d.key} style={{ background: "#fffdf8", border: "1px solid #e4dcce",
+                      borderRadius: 16, overflow: "hidden" }}>
+                      <div style={{ display: "flex", alignItems: "center", gap: 8,
+                        padding: "10px 16px", borderBottom: "1px solid #f0e9da",
+                        background: d.isToday ? "#fdf8f0" : "transparent" }}>
+                        <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase",
+                          letterSpacing: ".06em", color: d.isToday ? accent : "#2b2823", opacity: .8 }}>
+                          {dayNames[di]}
+                        </span>
+                        <span style={{ fontSize: 12, opacity: .5 }}>
+                          {d.date.toLocaleDateString([], { month: "short", day: "numeric" })}
+                        </span>
+                      </div>
+                      {Object.entries(d.stats.tickets).sort((a, b) => b[1] - a[1]).map(([t, m], i) => (
+                        <div key={t} style={{ display: "flex", alignItems: "center", gap: 12,
+                          padding: "11px 16px", borderTop: i ? "1px solid #f0e9da" : "none" }}>
+                          <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{t}</span>
+                          <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
+                            fontFamily: "'Space Grotesk', sans-serif", color: "#c2613c" }}>{fmtHM(m)}</span>
+                        </div>
+                      ))}
                     </div>
                   ))}
+                  {Object.keys(weekTickets).length === 0 && (
+                    <div style={{ fontSize: 13, opacity: .5, textAlign: "center", padding: "8px 0" }}>
+                      No tagged tickets yet this week.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -763,7 +779,7 @@ function Stat({ label, value, sub, tone }) {
   return (
     <div style={{ background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 16, padding: "14px 16px" }}>
       <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em", opacity: .55, fontWeight: 600 }}>{label}</div>
-      <div style={{ fontFamily: "'Fraunces', serif", fontWeight: 700, fontSize: 24, marginTop: 4, color: tone, fontVariantNumeric: "tabular-nums" }}>{value}</div>
+      <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 24, marginTop: 4, color: tone, fontVariantNumeric: "tabular-nums" }}>{value}</div>
       {sub && <div style={{ fontSize: 12, opacity: .5, marginTop: 1 }}>{sub}</div>}
     </div>
   );
@@ -774,7 +790,7 @@ function BigBtn({ children, color, onClick, flex }) {
     <button className="ft-btn" onClick={onClick} style={{
       flex: flex ? 1 : "none", background: color, color: "#fff8ee", border: "none",
       borderRadius: 14, padding: "16px 18px", fontSize: 16, fontWeight: 700,
-      fontFamily: "'Hanken Grotesk', sans-serif", cursor: "pointer", letterSpacing: ".01em",
+      fontFamily: "'Inter', sans-serif", cursor: "pointer", letterSpacing: ".01em",
       boxShadow: `0 8px 20px -10px ${color}aa`,
     }}>
       {children}
@@ -839,7 +855,6 @@ function BigBtn({ children, color, onClick, flex }) {
     var code;
     try {
       var raw = document.getElementById('app-source').textContent;
-      // safety net: drop any stray ES module statements
       raw = raw.replace(/^\s*import[\s\S]*?;\s*$/gm, '')
                .replace(/^\s*export\s+default\s+/gm, '');
       code = Babel.transform(raw, {
