@@ -11,6 +11,14 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&display=swap">
+<script>
+  // Avoid a light-mode flash if the person last used dark mode.
+  try {
+    if (localStorage.getItem('ui:darkMode') === 'true') {
+      document.documentElement.style.background = '#18160f';
+    }
+  } catch (_) {}
+</script>
 <style>
   html, body { margin:0; padding:0; background:#f4efe6;
     font-family:-apple-system, system-ui, "Segoe UI", Roboto, sans-serif; }
@@ -138,7 +146,8 @@ function computeDayStats(events, nowTs) {
   const tickets = {};
   for (let i = 0; i < events.length; i++) {
     if (!ticketStartTypes.has(events[i].type)) continue;
-    const ticket = events[i].ticket || "(untagged)";
+    const raw = (events[i].ticket || "").trim();
+    const ticket = raw ? raw.toUpperCase() : "(untagged)";
     const start = new Date(events[i].t).getTime();
     const isLast = i === events.length - 1;
     const end = isLast ? endRef : new Date(events[i + 1].t).getTime();
@@ -149,6 +158,24 @@ function computeDayStats(events, nowTs) {
            nonBillableLunch, lunchOverage, creditAppliedToLunch, breakBalance, tickets, done };
 }
 
+
+const LIGHT_THEME = {
+  bg: "#f4efe6", text: "#2b2823", cardBg: "#fffdf8", cardBorder: "#e4dcce",
+  divider: "#f0e9da", inputBorder: "#d9cfbd", inputBg: "#ffffff",
+  todayHighlight: "#fdf8f0", dashedBg: "#fbf6ee", dashedBorder: "#d9b9a3",
+  totalBg: "#f8f2e8", track: "#ece4d4", trackAlt: "#c9bda6", muted: "#8a8170",
+  neutralBtn: "#2b2823", breakStartBg: "#f3f6f1", breakStartBorder: "#dfe8df",
+  breakEndBg: "#f8f0ea", breakEndBorder: "#ecdcd0", shadow: "0 10px 30px -18px rgba(60,45,25,.4)",
+};
+const DARK_THEME = {
+  bg: "#18160f", text: "#efe8d8", cardBg: "#242019", cardBorder: "#3c3527",
+  divider: "#332e22", inputBorder: "#4a4332", inputBg: "#1e1a14",
+  todayHighlight: "#2c2619", dashedBg: "#2a2419", dashedBorder: "#5c4c34",
+  totalBg: "#2f2818", track: "#3a3324", trackAlt: "#4a4332", muted: "#a89a7e",
+  neutralBtn: "#57503b", breakStartBg: "#1f2620", breakStartBorder: "#33402f",
+  breakEndBg: "#2c231d", breakEndBorder: "#4a382b", shadow: "0 10px 30px -18px rgba(0,0,0,.55)",
+};
+
 function FocusTracker() {
   const [events, setEvents] = useState([]); // {type, t: ISO string, ticket?: string}
   const [now, setNow] = useState(Date.now());
@@ -157,7 +184,9 @@ function FocusTracker() {
   const [ticketInput, setTicketInput] = useState("");
   const [week, setWeek] = useState([]);       // [{date, key, stats}]
   const [showWeek, setShowWeek] = useState(false);
+  const [darkMode, setDarkMode] = useState(false);
   const storageKey = useRef(todayKey());
+  const theme = darkMode ? DARK_THEME : LIGHT_THEME;
 
   // live tick
   useEffect(() => {
@@ -165,14 +194,24 @@ function FocusTracker() {
     return () => clearInterval(id);
   }, []);
 
-  // load persisted day
+  // load persisted day + dark mode preference
   useEffect(() => {
     (async () => {
       const raw = await store.get(storageKey.current);
       if (raw) { try { setEvents(JSON.parse(raw)); } catch (_) {} }
+      const dm = await store.get("ui:darkMode");
+      if (dm === "true") setDarkMode(true);
       setLoaded(true);
     })();
   }, []);
+
+  const toggleDarkMode = () => {
+    setDarkMode((v) => {
+      const next = !v;
+      store.set("ui:darkMode", next ? "true" : "false");
+      return next;
+    });
+  };
 
   // persist on change
   useEffect(() => {
@@ -354,7 +393,7 @@ function FocusTracker() {
     state === "working" ? "#c2613c" :
     state === "onBreak" ? "#5f8a6f" :
     state === "onLunch" ? "#b88a2e" :
-    state === "onUnpaid" ? "#867a93" : "#8a8170";
+    state === "onUnpaid" ? "#867a93" : theme.muted;
 
   const statusLabel =
     state === "idle" ? "Ready to start" :
@@ -364,7 +403,7 @@ function FocusTracker() {
     state === "onUnpaid" ? "Stepped out (unpaid)" : "Day complete";
 
   return (
-    <div style={{ minHeight: "100vh", background: "#f4efe6", color: "#2b2823" }}>
+    <div style={{ minHeight: "100vh", background: theme.bg, color: theme.text }}>
       <style>{`
         * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
         .ft-btn { transition: transform .12s ease, filter .12s ease; }
@@ -375,19 +414,28 @@ function FocusTracker() {
 
       <div style={{ maxWidth: 460, margin: "0 auto", padding: "28px 20px 48px", fontFamily: "'Inter', sans-serif" }}>
         {/* Header */}
-        <div style={{ display: "flex", alignItems: "baseline", justifyContent: "space-between", marginBottom: 22 }}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 22 }}>
           <h1 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: 26, margin: 0, letterSpacing: "-0.02em" }}>
             Hours<span style={{ color: accent }}>.</span>
           </h1>
-          <span style={{ fontSize: 13, opacity: .6 }}>
-            {new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}
-          </span>
+          <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+            <span style={{ fontSize: 13, opacity: .6 }}>
+              {new Date().toLocaleDateString([], { weekday: "long", month: "short", day: "numeric" })}
+            </span>
+            <button onClick={toggleDarkMode} aria-label="Toggle dark mode" style={{
+              background: theme.cardBg, border: `1px solid ${theme.cardBorder}`, borderRadius: 999,
+              width: 32, height: 32, display: "flex", alignItems: "center", justifyContent: "center",
+              cursor: "pointer", fontSize: 15, lineHeight: 1, padding: 0,
+            }}>
+              {darkMode ? "☀️" : "🌙"}
+            </button>
+          </div>
         </div>
 
         {/* Status card */}
         <div className="ft-fade" style={{
-          background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 20,
-          padding: "24px 22px", boxShadow: "0 10px 30px -18px rgba(60,45,25,.4)", marginBottom: 16,
+          background: theme.cardBg, border: `1px solid ${theme.cardBorder}`, borderRadius: 20,
+          padding: "24px 22px", boxShadow: theme.shadow, marginBottom: 16,
         }}>
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 14 }}>
             <span style={{ width: 9, height: 9, borderRadius: "50%", background: accent,
@@ -412,7 +460,7 @@ function FocusTracker() {
           {breakStartAt && (
             <div style={{
               display: "flex", alignItems: "center", gap: 7, marginTop: 12,
-              padding: "8px 12px", background: "#f3f6f1", border: "1px solid #dfe8df",
+              padding: "8px 12px", background: theme.breakStartBg, border: `1px solid ${theme.breakStartBorder}`,
               borderRadius: 10, fontSize: 13,
             }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#5f8a6f", flexShrink: 0 }} />
@@ -438,14 +486,14 @@ function FocusTracker() {
                 onChange={(e) => updateCurrentTicket(e.target.value)}
                 style={{
                   width: "100%", fontFamily: "inherit", fontSize: 15, fontWeight: 600,
-                  padding: "9px 12px", border: "1px solid #d9cfbd", borderRadius: 10,
-                  background: "#fff", color: "#2b2823", outline: "none",
+                  padding: "9px 12px", border: `1px solid ${theme.inputBorder}`, borderRadius: 10,
+                  background: theme.inputBg, color: theme.text, outline: "none",
                   letterSpacing: ".02em",
                 }}
               />
               <button className="ft-btn" onClick={switchTicket} style={{
-                marginTop: 8, width: "100%", background: "#fbf6ee", color: "#c2613c",
-                border: "1px dashed #d9b9a3", borderRadius: 10, padding: "9px 12px",
+                marginTop: 8, width: "100%", background: theme.dashedBg, color: "#c2613c",
+                border: `1px dashed ${theme.dashedBorder}`, borderRadius: 10, padding: "9px 12px",
                 fontSize: 13, fontWeight: 700, fontFamily: "inherit", cursor: "pointer",
               }}>
                 + New ticket block &middot; keep focus timer
@@ -456,7 +504,7 @@ function FocusTracker() {
           {breakEndAt && (
             <div style={{
               display: "flex", alignItems: "center", gap: 7, marginTop: 12,
-              padding: "8px 12px", background: "#f8f0ea", border: "1px solid #ecdcd0",
+              padding: "8px 12px", background: theme.breakEndBg, border: `1px solid ${theme.breakEndBorder}`,
               borderRadius: 10, fontSize: 13,
             }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#c2613c", flexShrink: 0 }} />
@@ -471,7 +519,7 @@ function FocusTracker() {
           )}
 
           {/* progress */}
-          <div style={{ height: 8, borderRadius: 99, background: "#ece4d4", marginTop: 16, overflow: "hidden" }}>
+          <div style={{ height: 8, borderRadius: 99, background: theme.track, marginTop: 16, overflow: "hidden" }}>
             <div style={{
               height: "100%", borderRadius: 99, background: accent,
               width: `${Math.min(100, Math.max(0, (billable / WORK_TARGET) * 100))}%`,
@@ -483,22 +531,22 @@ function FocusTracker() {
         {/* Stats grid */}
         {clockIn && (
           <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginBottom: 16 }}>
-            <Stat label={remaining >= 0 ? "Remaining" : "Overtime"}
+            <Stat theme={theme} label={remaining >= 0 ? "Remaining" : "Overtime"}
                   value={fmtHM(Math.abs(remaining))}
-                  tone={remaining >= 0 ? "#2b2823" : "#c2613c"} />
-            <Stat label={state === "done" ? "Clocked out" : "Clock out at"}
+                  tone={remaining >= 0 ? theme.text : "#c2613c"} />
+            <Stat theme={theme} label={state === "done" ? "Clocked out" : "Clock out at"}
                   value={state === "done" ? fmtClock(new Date(last.t)) : (eod ? fmtClock(eod) : "—")}
-                  tone="#2b2823" />
-            <Stat label="Break credit"
+                  tone={theme.text} />
+            <Stat theme={theme} label="Break credit"
                   value={`${breakBalance >= 0 ? "+" : ""}${Math.round(breakBalance)}m`}
                   sub={creditAppliedToLunch > 0 ? `${Math.round(creditAppliedToLunch)}m used on lunch` : "available"}
                   tone={breakBalance >= 0 ? "#5f8a6f" : "#b88a2e"} />
-            <Stat label="Lunch (unpaid)"
+            <Stat theme={theme} label="Lunch (unpaid)"
                   value={`${Math.round(nonBillableLunch)}m`}
                   sub={lunchMin > 0 ? `${Math.round(lunchOverage)}m overage − credit` : "no lunch yet"}
-                  tone="#2b2823" />
+                  tone={theme.text} />
             {unpaidMin > 0 && (
-              <Stat label="Stepped out"
+              <Stat theme={theme} label="Stepped out"
                     value={`${Math.round(unpaidMin)}m`}
                     sub="unpaid, pushed EOD"
                     tone="#867a93" />
@@ -519,7 +567,7 @@ function FocusTracker() {
               </div>
               <div style={{ display: "flex", gap: 10 }}>
                 <BigBtn color="#867a93" flex onClick={() => push("startUnpaid")}>Step Out (Unpaid)</BigBtn>
-                <BigBtn color="#2b2823" flex onClick={() => push("clockOut")}>Clock Out</BigBtn>
+                <BigBtn color={theme.neutralBtn} flex onClick={() => push("clockOut")}>Clock Out</BigBtn>
               </div>
             </>
           )}
@@ -547,7 +595,7 @@ function FocusTracker() {
                 {editing ? "Done" : "Edit"}
               </button>
             </div>
-            <div style={{ background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 16, overflow: "hidden" }}>
+            <div style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}`, borderRadius: 16, overflow: "hidden" }}>
               {events.map((ev, i) => {
                 const d = new Date(ev.t);
                 const labelMap = {
@@ -557,20 +605,20 @@ function FocusTracker() {
                 };
                 const dotMap = {
                   clockIn: "#c2613c", endBreak: "#c2613c", endLunch: "#c2613c", endUnpaid: "#c2613c",
-                  startBreak: "#5f8a6f", startLunch: "#b88a2e", startUnpaid: "#867a93", clockOut: "#2b2823",
+                  startBreak: "#5f8a6f", startLunch: "#b88a2e", startUnpaid: "#867a93", clockOut: theme.neutralBtn,
                   switchTicket: "#c2613c",
                 };
                 return (
                   <div key={i} style={{
                     padding: "12px 16px",
-                    borderTop: i ? "1px solid #f0e9da" : "none",
+                    borderTop: i ? `1px solid ${theme.divider}` : "none",
                   }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
                       <span style={{ width: 8, height: 8, borderRadius: "50%", background: dotMap[ev.type], flexShrink: 0 }} />
                       {editing && blockStartEditable.has(ev.type) ? (
                         <select value={ev.type} onChange={(e) => changeType(i, e.target.value)}
                           style={{ fontFamily: "inherit", fontSize: 14, fontWeight: 600, padding: "3px 6px",
-                            border: "1px solid #d9cfbd", borderRadius: 8, background: "#fff", color: "#2b2823" }}>
+                            border: `1px solid ${theme.inputBorder}`, borderRadius: 8, background: theme.inputBg, color: theme.text }}>
                           {typeOptions.map((o) => <option key={o.v} value={o.v}>{o.label}</option>)}
                         </select>
                       ) : (
@@ -582,7 +630,7 @@ function FocusTracker() {
                           value={`${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`}
                           onChange={(e) => editTime(i, e.target.value)}
                           style={{ marginLeft: "auto", fontFamily: "inherit", fontSize: 14, padding: "2px 6px",
-                            border: "1px solid #d9cfbd", borderRadius: 8, background: "#fff", color: "#2b2823" }}
+                            border: `1px solid ${theme.inputBorder}`, borderRadius: 8, background: theme.inputBg, color: theme.text }}
                         />
                       ) : (
                         <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 600, opacity: .75 }}>
@@ -605,8 +653,8 @@ function FocusTracker() {
                           value={ev.ticket || ""}
                           onChange={(e) => editEventTicket(i, e.target.value)}
                           style={{ marginTop: 8, marginLeft: 20, width: "calc(100% - 20px)", fontFamily: "inherit",
-                            fontSize: 13, fontWeight: 600, padding: "6px 10px", border: "1px solid #d9cfbd",
-                            borderRadius: 8, background: "#fff", color: "#2b2823", outline: "none" }}
+                            fontSize: 13, fontWeight: 600, padding: "6px 10px", border: `1px solid ${theme.inputBorder}`,
+                            borderRadius: 8, background: theme.inputBg, color: theme.text, outline: "none" }}
                         />
                       ) : ev.ticket ? (
                         <div style={{ marginTop: 4, marginLeft: 20, fontSize: 13, fontWeight: 600, color: "#c2613c" }}>
@@ -616,8 +664,8 @@ function FocusTracker() {
                     )}
                     {editing && followType[ev.type] !== "none" && (
                       <button onClick={() => insertBlock(i)}
-                        style={{ marginTop: 10, marginLeft: 20, background: "#fbf6ee", color: "#8a8170",
-                          border: "1px dashed #d9cfbd", borderRadius: 8, padding: "5px 10px", fontSize: 12,
+                        style={{ marginTop: 10, marginLeft: 20, background: theme.dashedBg, color: theme.muted,
+                          border: `1px dashed ${theme.inputBorder}`, borderRadius: 8, padding: "5px 10px", fontSize: 12,
                           fontWeight: 600, cursor: "pointer", fontFamily: "inherit" }}>
                         + Insert block below
                       </button>
@@ -640,13 +688,13 @@ function FocusTracker() {
         {Object.keys(ticketSummary).length > 0 && (
           <div className="ft-fade" style={{ marginTop: 24 }}>
             <h2 style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 600, fontSize: 17, margin: "0 0 10px" }}>Ticket Summary</h2>
-            <div style={{ background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 16, overflow: "hidden" }}>
+            <div style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}`, borderRadius: 16, overflow: "hidden" }}>
               {Object.entries(ticketSummary)
                 .sort((a, b) => b[1] - a[1])
                 .map(([ticket, mins], i, arr) => (
                   <div key={ticket} style={{
                     display: "flex", alignItems: "center", gap: 12,
-                    padding: "13px 16px", borderTop: i ? "1px solid #f0e9da" : "none",
+                    padding: "13px 16px", borderTop: i ? `1px solid ${theme.divider}` : "none",
                   }}>
                     <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{ticket}</span>
                     <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
@@ -658,8 +706,8 @@ function FocusTracker() {
               {/* Total row */}
               <div style={{
                 display: "flex", alignItems: "center", gap: 12,
-                padding: "13px 16px", borderTop: "2px solid #e4dcce",
-                background: "#f8f2e8",
+                padding: "13px 16px", borderTop: `2px solid ${theme.cardBorder}`,
+                background: theme.totalBg,
               }}>
                 <span style={{ fontSize: 14, fontWeight: 700, flex: 1, opacity: .6, textTransform: "uppercase", letterSpacing: ".05em", fontSize: 12 }}>Total tagged</span>
                 <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
@@ -693,23 +741,23 @@ function FocusTracker() {
                 </button>
               </div>
 
-              <div style={{ background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 16, overflow: "hidden" }}>
+              <div style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}`, borderRadius: 16, overflow: "hidden" }}>
                 {week.map((d, i) => {
                   const mins = d.stats?.billable || 0;
                   const pct = Math.min(100, (mins / WORK_TARGET) * 100);
                   return (
                     <div key={d.key} style={{
                       display: "flex", alignItems: "center", gap: 12,
-                      padding: "12px 16px", borderTop: i ? "1px solid #f0e9da" : "none",
-                      background: d.isToday ? "#fdf8f0" : "transparent",
+                      padding: "12px 16px", borderTop: i ? `1px solid ${theme.divider}` : "none",
+                      background: d.isToday ? theme.todayHighlight : "transparent",
                     }}>
                       <span style={{ fontSize: 13, fontWeight: 700, width: 34,
-                        color: d.isToday ? accent : "#2b2823", opacity: d.stats ? 1 : .4 }}>
+                        color: d.isToday ? accent : theme.text, opacity: d.stats ? 1 : .4 }}>
                         {dayNames[i]}
                       </span>
-                      <div style={{ flex: 1, height: 6, borderRadius: 99, background: "#ece4d4", overflow: "hidden" }}>
+                      <div style={{ flex: 1, height: 6, borderRadius: 99, background: theme.track, overflow: "hidden" }}>
                         <div style={{ height: "100%", borderRadius: 99, width: `${pct}%`,
-                          background: d.isToday ? accent : "#c9bda6", transition: "width .4s ease" }} />
+                          background: d.isToday ? accent : theme.trackAlt, transition: "width .4s ease" }} />
                       </div>
                       <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 13, fontWeight: 600,
                         minWidth: 58, textAlign: "right", opacity: d.stats ? .85 : .35 }}>
@@ -720,7 +768,7 @@ function FocusTracker() {
                 })}
                 <div style={{
                   display: "flex", alignItems: "center", gap: 12,
-                  padding: "13px 16px", borderTop: "2px solid #e4dcce", background: "#f8f2e8",
+                  padding: "13px 16px", borderTop: `2px solid ${theme.cardBorder}`, background: theme.totalBg,
                 }}>
                   <span style={{ flex: 1, fontSize: 12, fontWeight: 700, opacity: .6,
                     textTransform: "uppercase", letterSpacing: ".05em" }}>
@@ -737,13 +785,13 @@ function FocusTracker() {
               {showWeek && (
                 <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
                   {week.filter((d) => d.stats && Object.keys(d.stats.tickets).length > 0).map((d, di) => (
-                    <div key={d.key} style={{ background: "#fffdf8", border: "1px solid #e4dcce",
+                    <div key={d.key} style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}`,
                       borderRadius: 16, overflow: "hidden" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8,
-                        padding: "10px 16px", borderBottom: "1px solid #f0e9da",
-                        background: d.isToday ? "#fdf8f0" : "transparent" }}>
+                        padding: "10px 16px", borderBottom: `1px solid ${theme.divider}`,
+                        background: d.isToday ? theme.todayHighlight : "transparent" }}>
                         <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase",
-                          letterSpacing: ".06em", color: d.isToday ? accent : "#2b2823", opacity: .8 }}>
+                          letterSpacing: ".06em", color: d.isToday ? accent : theme.text, opacity: .8 }}>
                           {dayNames[di]}
                         </span>
                         <span style={{ fontSize: 12, opacity: .5 }}>
@@ -752,7 +800,7 @@ function FocusTracker() {
                       </div>
                       {Object.entries(d.stats.tickets).sort((a, b) => b[1] - a[1]).map(([t, m], i) => (
                         <div key={t} style={{ display: "flex", alignItems: "center", gap: 12,
-                          padding: "11px 16px", borderTop: i ? "1px solid #f0e9da" : "none" }}>
+                          padding: "11px 16px", borderTop: i ? `1px solid ${theme.divider}` : "none" }}>
                           <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{t}</span>
                           <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
                             fontFamily: "'Space Grotesk', sans-serif", color: "#c2613c" }}>{fmtHM(m)}</span>
@@ -775,9 +823,9 @@ function FocusTracker() {
   );
 }
 
-function Stat({ label, value, sub, tone }) {
+function Stat({ label, value, sub, tone, theme }) {
   return (
-    <div style={{ background: "#fffdf8", border: "1px solid #e4dcce", borderRadius: 16, padding: "14px 16px" }}>
+    <div style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}`, borderRadius: 16, padding: "14px 16px" }}>
       <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em", opacity: .55, fontWeight: 600 }}>{label}</div>
       <div style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 700, fontSize: 24, marginTop: 4, color: tone, fontVariantNumeric: "tabular-nums" }}>{value}</div>
       {sub && <div style={{ fontSize: 12, opacity: .5, marginTop: 1 }}>{sub}</div>}
