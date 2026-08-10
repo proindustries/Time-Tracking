@@ -144,6 +144,7 @@ function computeDayStats(events, nowTs) {
   const billable = clockIn ? (endRef - clockIn) / MS - nonBillableLunch - unpaidMin : 0;
 
   const tickets = {};
+  const ticketDescs = {};
   for (let i = 0; i < events.length; i++) {
     if (!ticketStartTypes.has(events[i].type)) continue;
     const raw = (events[i].ticket || "").trim();
@@ -152,10 +153,16 @@ function computeDayStats(events, nowTs) {
     const isLast = i === events.length - 1;
     const end = isLast ? endRef : new Date(events[i + 1].t).getTime();
     tickets[ticket] = (tickets[ticket] || 0) + Math.max(0, (end - start) / MS);
+    const desc = (events[i].desc || "").trim();
+    if (desc) {
+      if (!ticketDescs[ticket]) ticketDescs[ticket] = [];
+      if (!ticketDescs[ticket].includes(desc)) ticketDescs[ticket].push(desc);
+    }
   }
 
   return { workMin, breakMin, lunchMin, unpaidMin, clockIn, billable,
-           nonBillableLunch, lunchOverage, creditAppliedToLunch, breakBalance, tickets, done };
+           nonBillableLunch, lunchOverage, creditAppliedToLunch, breakBalance,
+           tickets, ticketDescs, done };
 }
 
 
@@ -182,6 +189,7 @@ function FocusTracker() {
   const [loaded, setLoaded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [ticketInput, setTicketInput] = useState("");
+  const [descInput, setDescInput] = useState("");
   const [week, setWeek] = useState([]);       // [{date, key, stats}]
   const [showWeek, setShowWeek] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
@@ -265,7 +273,9 @@ function FocusTracker() {
   const push = (type) =>
     setEvents((e) => [
       ...e,
-      { type, t: new Date().toISOString(), ...(workStartTypes.has(type) && ticketInput ? { ticket: ticketInput.trim() } : {}) }
+      { type, t: new Date().toISOString(),
+        ...(workStartTypes.has(type) && ticketInput ? { ticket: ticketInput.trim() } : {}),
+        ...(workStartTypes.has(type) && descInput ? { desc: descInput.trim() } : {}) }
     ]);
 
   // update ticket on the most recent ticket-segment start
@@ -283,10 +293,26 @@ function FocusTracker() {
     });
   };
 
+  // update description on the most recent ticket-segment start
+  const updateCurrentDesc = (val) => {
+    setDescInput(val);
+    setEvents((e) => {
+      const copy = [...e];
+      for (let i = copy.length - 1; i >= 0; i--) {
+        if (ticketStartTypes.has(copy[i].type)) {
+          copy[i] = { ...copy[i], desc: val.trim() };
+          break;
+        }
+      }
+      return copy;
+    });
+  };
+
   // start a new ticket segment without resetting the focus block
   const switchTicket = () => {
     setEvents((e) => [...e, { type: "switchTicket", t: new Date().toISOString() }]);
     setTicketInput("");
+    setDescInput("");
   };
 
   const editTime = (i, hhmm) => {
@@ -304,6 +330,14 @@ function FocusTracker() {
     setEvents((e) => {
       const copy = [...e];
       copy[i] = { ...copy[i], ticket: val.trim() };
+      return copy;
+    });
+  };
+
+  const editEventDesc = (i, val) => {
+    setEvents((e) => {
+      const copy = [...e];
+      copy[i] = { ...copy[i], desc: val.trim() };
       return copy;
     });
   };
@@ -350,6 +384,7 @@ function FocusTracker() {
   const { workMin, breakMin, lunchMin, unpaidMin, clockIn, billable,
           nonBillableLunch, lunchOverage, creditAppliedToLunch, breakBalance } = stats;
   const ticketSummary = stats.tickets;
+  const ticketDescs = stats.ticketDescs || {};
 
   // current interval (for the live header timer)
   let currentStart = null;
@@ -489,6 +524,18 @@ function FocusTracker() {
                   padding: "9px 12px", border: `1px solid ${theme.inputBorder}`, borderRadius: 10,
                   background: theme.inputBg, color: theme.text, outline: "none",
                   letterSpacing: ".02em",
+                }}
+              />
+              <textarea
+                placeholder="What you're working on (for your work log)"
+                value={descInput}
+                onChange={(e) => updateCurrentDesc(e.target.value)}
+                rows={2}
+                style={{
+                  width: "100%", fontFamily: "inherit", fontSize: 14, fontWeight: 400,
+                  marginTop: 8, padding: "9px 12px", border: `1px solid ${theme.inputBorder}`,
+                  borderRadius: 10, background: theme.inputBg, color: theme.text,
+                  outline: "none", resize: "vertical", lineHeight: 1.4,
                 }}
               />
               <button className="ft-btn" onClick={switchTicket} style={{
@@ -647,18 +694,35 @@ function FocusTracker() {
                     </div>
                     {ticketStartTypes.has(ev.type) && (
                       editing ? (
-                        <input
-                          type="text"
-                          placeholder="ticket #"
-                          value={ev.ticket || ""}
-                          onChange={(e) => editEventTicket(i, e.target.value)}
-                          style={{ marginTop: 8, marginLeft: 20, width: "calc(100% - 20px)", fontFamily: "inherit",
-                            fontSize: 13, fontWeight: 600, padding: "6px 10px", border: `1px solid ${theme.inputBorder}`,
-                            borderRadius: 8, background: theme.inputBg, color: theme.text, outline: "none" }}
-                        />
-                      ) : ev.ticket ? (
-                        <div style={{ marginTop: 4, marginLeft: 20, fontSize: 13, fontWeight: 600, color: "#c2613c" }}>
-                          {ev.ticket}
+                        <div>
+                          <input
+                            type="text"
+                            placeholder="ticket #"
+                            value={ev.ticket || ""}
+                            onChange={(e) => editEventTicket(i, e.target.value)}
+                            style={{ marginTop: 8, marginLeft: 20, width: "calc(100% - 20px)", fontFamily: "inherit",
+                              fontSize: 13, fontWeight: 600, padding: "6px 10px", border: `1px solid ${theme.inputBorder}`,
+                              borderRadius: 8, background: theme.inputBg, color: theme.text, outline: "none" }}
+                          />
+                          <textarea
+                            placeholder="description"
+                            value={ev.desc || ""}
+                            onChange={(e) => editEventDesc(i, e.target.value)}
+                            rows={2}
+                            style={{ marginTop: 6, marginLeft: 20, width: "calc(100% - 20px)", fontFamily: "inherit",
+                              fontSize: 13, padding: "6px 10px", border: `1px solid ${theme.inputBorder}`,
+                              borderRadius: 8, background: theme.inputBg, color: theme.text, outline: "none",
+                              resize: "vertical", lineHeight: 1.4 }}
+                          />
+                        </div>
+                      ) : (ev.ticket || ev.desc) ? (
+                        <div style={{ marginTop: 4, marginLeft: 20 }}>
+                          {ev.ticket && (
+                            <div style={{ fontSize: 13, fontWeight: 600, color: "#c2613c" }}>{ev.ticket}</div>
+                          )}
+                          {ev.desc && (
+                            <div style={{ fontSize: 13, opacity: .65, marginTop: 2, lineHeight: 1.4 }}>{ev.desc}</div>
+                          )}
                         </div>
                       ) : null
                     )}
@@ -693,14 +757,20 @@ function FocusTracker() {
                 .sort((a, b) => b[1] - a[1])
                 .map(([ticket, mins], i, arr) => (
                   <div key={ticket} style={{
-                    display: "flex", alignItems: "center", gap: 12,
                     padding: "13px 16px", borderTop: i ? `1px solid ${theme.divider}` : "none",
                   }}>
-                    <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{ticket}</span>
-                    <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
-                      fontFamily: "'Space Grotesk', sans-serif", color: "#c2613c" }}>
-                      {fmtHM(mins)}
-                    </span>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{ticket}</span>
+                      <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
+                        fontFamily: "'Space Grotesk', sans-serif", color: "#c2613c" }}>
+                        {fmtHM(mins)}
+                      </span>
+                    </div>
+                    {(ticketDescs[ticket] || []).length > 0 && (
+                      <ul style={{ margin: "6px 0 0", paddingLeft: 16, fontSize: 13, opacity: .65, lineHeight: 1.45 }}>
+                        {ticketDescs[ticket].map((dsc, k) => <li key={k}>{dsc}</li>)}
+                      </ul>
+                    )}
                   </div>
                 ))}
               {/* Total row */}
@@ -784,7 +854,7 @@ function FocusTracker() {
 
               {showWeek && (
                 <div style={{ marginTop: 12, display: "flex", flexDirection: "column", gap: 12 }}>
-                  {week.filter((d) => d.stats && Object.keys(d.stats.tickets).length > 0).map((d, di) => (
+                  {week.filter((d) => d.stats && Object.keys(d.stats.tickets).length > 0).map((d) => (
                     <div key={d.key} style={{ background: theme.cardBg, border: `1px solid ${theme.cardBorder}`,
                       borderRadius: 16, overflow: "hidden" }}>
                       <div style={{ display: "flex", alignItems: "center", gap: 8,
@@ -792,18 +862,25 @@ function FocusTracker() {
                         background: d.isToday ? theme.todayHighlight : "transparent" }}>
                         <span style={{ fontSize: 12, fontWeight: 700, textTransform: "uppercase",
                           letterSpacing: ".06em", color: d.isToday ? accent : theme.text, opacity: .8 }}>
-                          {dayNames[di]}
+                          {d.date.toLocaleDateString([], { weekday: "short" })}
                         </span>
                         <span style={{ fontSize: 12, opacity: .5 }}>
                           {d.date.toLocaleDateString([], { month: "short", day: "numeric" })}
                         </span>
                       </div>
                       {Object.entries(d.stats.tickets).sort((a, b) => b[1] - a[1]).map(([t, m], i) => (
-                        <div key={t} style={{ display: "flex", alignItems: "center", gap: 12,
-                          padding: "11px 16px", borderTop: i ? `1px solid ${theme.divider}` : "none" }}>
-                          <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{t}</span>
-                          <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
-                            fontFamily: "'Space Grotesk', sans-serif", color: "#c2613c" }}>{fmtHM(m)}</span>
+                        <div key={t} style={{ padding: "11px 16px",
+                          borderTop: i ? `1px solid ${theme.divider}` : "none" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                            <span style={{ fontSize: 14, fontWeight: 600, flex: 1 }}>{t}</span>
+                            <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 700,
+                              fontFamily: "'Space Grotesk', sans-serif", color: "#c2613c" }}>{fmtHM(m)}</span>
+                          </div>
+                          {((d.stats.ticketDescs || {})[t] || []).length > 0 && (
+                            <ul style={{ margin: "6px 0 0", paddingLeft: 16, fontSize: 13, opacity: .65, lineHeight: 1.45 }}>
+                              {d.stats.ticketDescs[t].map((dsc, k) => <li key={k}>{dsc}</li>)}
+                            </ul>
+                          )}
                         </div>
                       ))}
                     </div>
