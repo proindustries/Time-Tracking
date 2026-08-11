@@ -40,9 +40,11 @@
 // ── Time helpers ───────────────────────────────────────────────
 const MS = 60000;
 const WORK_TARGET = 480; // 8 billable hours, in minutes
-const WORK_BLOCK = 52;   // standard focus block length
-const STD_BREAK = 17;    // standard break length (the lunch credit)
-const RATIO = 17 / 52;   // break minutes earned per work minute (52/17 cycle)
+const PRESETS = {
+  classic: { focus: 52, brk: 17, label: "52 / 17", name: "Classic" },
+  deep:    { focus: 90, brk: 20, label: "90 / 20", name: "Deep Work" },
+  sprint:  { focus: 25, brk: 5,  label: "25 / 5",  name: "Pomodoro" },
+};
 
 const fmtClock = (d) =>
   d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
@@ -116,7 +118,7 @@ const typeOptions = [
 ];
 
 // Pure day computation — used for today (live) and for past days in the week roll-up.
-function computeDayStats(events, nowTs) {
+function computeDayStats(events, nowTs, stdBreak, ratio) {
   const last = events[events.length - 1];
   const done = last && last.type === "clockOut";
   const endRef = done ? new Date(last.t).getTime() : nowTs;
@@ -135,9 +137,9 @@ function computeDayStats(events, nowTs) {
   }
 
   const clockIn = events[0] ? new Date(events[0].t).getTime() : null;
-  const breakEarned = workMin * RATIO;
+  const breakEarned = workMin * ratio;
   const rawBreakCredit = Math.max(0, breakEarned - breakMin);
-  const lunchOverage = Math.max(0, lunchMin - STD_BREAK);
+  const lunchOverage = Math.max(0, lunchMin - stdBreak);
   const creditAppliedToLunch = Math.min(rawBreakCredit, lunchOverage);
   const nonBillableLunch = lunchOverage - creditAppliedToLunch;
   const breakBalance = rawBreakCredit - creditAppliedToLunch;
@@ -193,8 +195,13 @@ function FocusTracker() {
   const [week, setWeek] = useState([]);       // [{date, key, stats}]
   const [showWeek, setShowWeek] = useState(false);
   const [darkMode, setDarkMode] = useState(false);
+  const [focusMode, setFocusMode] = useState("classic");
   const storageKey = useRef(todayKey());
   const theme = darkMode ? DARK_THEME : LIGHT_THEME;
+  const preset = PRESETS[focusMode] || PRESETS.classic;
+  const WORK_BLOCK = preset.focus;
+  const STD_BREAK = preset.brk;
+  const RATIO = preset.brk / preset.focus;
 
   // live tick
   useEffect(() => {
@@ -209,9 +216,16 @@ function FocusTracker() {
       if (raw) { try { setEvents(JSON.parse(raw)); } catch (_) {} }
       const dm = await store.get("ui:darkMode");
       if (dm === "true") setDarkMode(true);
+      const fm = await store.get("ui:focusMode");
+      if (fm && PRESETS[fm]) setFocusMode(fm);
       setLoaded(true);
     })();
   }, []);
+
+  const chooseFocusMode = (k) => {
+    setFocusMode(k);
+    store.set("ui:focusMode", k);
+  };
 
   const toggleDarkMode = () => {
     setDarkMode((v) => {
@@ -249,13 +263,13 @@ function FocusTracker() {
           date: d,
           key: k,
           isToday: k === storageKey.current,
-          stats: evs.length ? computeDayStats(evs, Date.now()) : null,
+          stats: evs.length ? computeDayStats(evs, Date.now(), STD_BREAK, RATIO) : null,
         });
       }
       if (!cancelled) setWeek(out);
     })();
     return () => { cancelled = true; };
-  }, [events, loaded]);
+  }, [events, loaded, focusMode]);
 
   const last = events[events.length - 1];
   const state = !last
@@ -380,7 +394,7 @@ function FocusTracker() {
   };
 
   // ── compute durations ─────────────────────────────────────────
-  const stats = computeDayStats(events, now);
+  const stats = computeDayStats(events, now, STD_BREAK, RATIO);
   const { workMin, breakMin, lunchMin, unpaidMin, clockIn, billable,
           nonBillableLunch, lunchOverage, creditAppliedToLunch, breakBalance } = stats;
   const ticketSummary = stats.tickets;
@@ -465,6 +479,27 @@ function FocusTracker() {
               {darkMode ? "☀️" : "🌙"}
             </button>
           </div>
+        </div>
+
+        {/* Focus mode selector */}
+        <div style={{ display: "flex", gap: 6, marginBottom: 14, background: theme.cardBg,
+          border: `1px solid ${theme.cardBorder}`, borderRadius: 12, padding: 4 }}>
+          {Object.entries(PRESETS).map(([k, p]) => {
+            const active = k === focusMode;
+            return (
+              <button key={k} onClick={() => chooseFocusMode(k)} style={{
+                flex: 1, background: active ? accent : "transparent",
+                color: active ? "#fff8ee" : theme.text,
+                opacity: active ? 1 : .55,
+                border: "none", borderRadius: 9, padding: "8px 4px", cursor: "pointer",
+                fontFamily: "inherit", fontWeight: 700, fontSize: 12, lineHeight: 1.3,
+                transition: "background .15s ease",
+              }}>
+                <div>{p.name}</div>
+                <div style={{ fontSize: 11, fontWeight: 500, opacity: .85, marginTop: 1 }}>{p.label}</div>
+              </button>
+            );
+          })}
         </div>
 
         {/* Status card */}
@@ -556,7 +591,7 @@ function FocusTracker() {
             }}>
               <span style={{ width: 6, height: 6, borderRadius: "50%", background: "#c2613c", flexShrink: 0 }} />
               <span style={{ opacity: .8 }}>
-                Break done at <strong style={{ fontVariantNumeric: "tabular-nums" }}>{fmtClock(breakEndAt)}</strong> &middot; 17 min
+                Break done at <strong style={{ fontVariantNumeric: "tabular-nums" }}>{fmtClock(breakEndAt)}</strong> &middot; {STD_BREAK} min
               </span>
               <span style={{ marginLeft: "auto", fontVariantNumeric: "tabular-nums", fontWeight: 600,
                 color: minsToBreakEnd >= 0 ? "#c2613c" : "#b88a2e" }}>
