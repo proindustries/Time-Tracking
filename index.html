@@ -117,27 +117,45 @@ const typeOptions = [
   { v: "switchTicket", label: "Work" },
 ];
 
+// A "modeChange" event splits the current interval without changing what you're doing.
+// It carries `act` (the activity it continues) and `mode` (the new preset from here on).
+const actOf = (ev) => (ev.type === "modeChange" ? (ev.act || "work") : followType[ev.type]);
+const isTicketStart = (ev) =>
+  ticketStartTypes.has(ev.type) || (ev.type === "modeChange" && (ev.act || "work") === "work");
+
 // Pure day computation — used for today (live) and for past days in the week roll-up.
-function computeDayStats(events, nowTs, stdBreak, ratio) {
+function computeDayStats(events, nowTs, defaultMode) {
   const last = events[events.length - 1];
   const done = last && last.type === "clockOut";
   const endRef = done ? new Date(last.t).getTime() : nowTs;
 
   let workMin = 0, breakMin = 0, lunchMin = 0, unpaidMin = 0;
+  let breakEarned = 0;          // accrued per segment at the rate active then
+  let mode = PRESETS[defaultMode] ? defaultMode : "classic";
+  let lunchStdBreak = null;     // the standard break in effect when lunch began
+
   for (let i = 0; i < events.length; i++) {
+    if (events[i].mode && PRESETS[events[i].mode]) mode = events[i].mode;
+    const p = PRESETS[mode];
     const start = new Date(events[i].t).getTime();
     const isLast = i === events.length - 1;
     const end = isLast ? endRef : new Date(events[i + 1].t).getTime();
-    const type = followType[events[i].type];
+    const type = actOf(events[i]);
     const dur = Math.max(0, (end - start) / MS);
-    if (type === "work") workMin += dur;
+    if (type === "work") {
+      workMin += dur;
+      breakEarned += dur * (p.brk / p.focus);   // rate locked to this segment
+    }
     else if (type === "break") breakMin += dur;
-    else if (type === "lunch") lunchMin += dur;
+    else if (type === "lunch") {
+      lunchMin += dur;
+      if (lunchStdBreak === null) lunchStdBreak = p.brk;
+    }
     else if (type === "unpaid") unpaidMin += dur;
   }
 
+  const stdBreak = lunchStdBreak === null ? PRESETS[mode].brk : lunchStdBreak;
   const clockIn = events[0] ? new Date(events[0].t).getTime() : null;
-  const breakEarned = workMin * ratio;
   const rawBreakCredit = Math.max(0, breakEarned - breakMin);
   const lunchOverage = Math.max(0, lunchMin - stdBreak);
   const creditAppliedToLunch = Math.min(rawBreakCredit, lunchOverage);
@@ -148,7 +166,7 @@ function computeDayStats(events, nowTs, stdBreak, ratio) {
   const tickets = {};
   const ticketDescs = {};
   for (let i = 0; i < events.length; i++) {
-    if (!ticketStartTypes.has(events[i].type)) continue;
+    if (!isTicketStart(events[i])) continue;
     const raw = (events[i].ticket || "").trim();
     const ticket = raw ? raw.toUpperCase() : "(untagged)";
     const start = new Date(events[i].t).getTime();
@@ -225,6 +243,21 @@ function FocusTracker() {
   const chooseFocusMode = (k) => {
     setFocusMode(k);
     store.set("ui:focusMode", k);
+    // Mid-day switch: close the current segment and start a new one at the new rate.
+    // Credit already earned is untouched; only time from here on uses the new ratio.
+    setEvents((e) => {
+      if (!e.length) return e;
+      const lastEv = e[e.length - 1];
+      if (lastEv.type === "clockOut") return e;
+      const act = actOf(lastEv);
+      if (act === "none") return e;
+      const marker = { type: "modeChange", t: new Date().toISOString(), act, mode: k };
+      if (act === "work") {
+        if (lastEv.ticket) marker.ticket = lastEv.ticket;
+        if (lastEv.desc) marker.desc = lastEv.desc;
+      }
+      return [...e, marker];
+    });
   };
 
   const toggleDarkMode = () => {
@@ -263,7 +296,7 @@ function FocusTracker() {
           date: d,
           key: k,
           isToday: k === storageKey.current,
-          stats: evs.length ? computeDayStats(evs, Date.now(), STD_BREAK, RATIO) : null,
+          stats: evs.length ? computeDayStats(evs, Date.now(), focusMode) : null,
         });
       }
       if (!cancelled) setWeek(out);
@@ -276,18 +309,18 @@ function FocusTracker() {
     ? "idle"
     : last.type === "clockOut"
     ? "done"
-    : followType[last.type] === "work"
+    : actOf(last) === "work"
     ? "working"
-    : followType[last.type] === "break"
+    : actOf(last) === "break"
     ? "onBreak"
-    : followType[last.type] === "unpaid"
+    : actOf(last) === "unpaid"
     ? "onUnpaid"
     : "onLunch";
 
   const push = (type) =>
     setEvents((e) => [
       ...e,
-      { type, t: new Date().toISOString(),
+      { type, t: new Date().toISOString(), mode: focusMode,
         ...(workStartTypes.has(type) && ticketInput ? { ticket: ticketInput.trim() } : {}),
         ...(workStartTypes.has(type) && descInput ? { desc: descInput.trim() } : {}) }
     ]);
@@ -298,7 +331,7 @@ function FocusTracker() {
     setEvents((e) => {
       const copy = [...e];
       for (let i = copy.length - 1; i >= 0; i--) {
-        if (ticketStartTypes.has(copy[i].type)) {
+        if (isTicketStart(copy[i])) {
           copy[i] = { ...copy[i], ticket: val.trim() };
           break;
         }
@@ -313,7 +346,7 @@ function FocusTracker() {
     setEvents((e) => {
       const copy = [...e];
       for (let i = copy.length - 1; i >= 0; i--) {
-        if (ticketStartTypes.has(copy[i].type)) {
+        if (isTicketStart(copy[i])) {
           copy[i] = { ...copy[i], desc: val.trim() };
           break;
         }
@@ -324,7 +357,7 @@ function FocusTracker() {
 
   // start a new ticket segment without resetting the focus block
   const switchTicket = () => {
-    setEvents((e) => [...e, { type: "switchTicket", t: new Date().toISOString() }]);
+    setEvents((e) => [...e, { type: "switchTicket", t: new Date().toISOString(), mode: focusMode }]);
     setTicketInput("");
     setDescInput("");
   };
@@ -365,7 +398,7 @@ function FocusTracker() {
       const gap = Math.max(0, rightT - leftT);
       const s = new Date(leftT + gap / 3);
       const en = new Date(leftT + (2 * gap) / 3);
-      const activity = followType[copy[i].type]; // activity of the interval being split
+      const activity = actOf(copy[i]); // activity of the interval being split
       const resumeMap = { work: "endBreak", break: "startBreak", lunch: "startLunch", unpaid: "startUnpaid" };
       const resumeType = resumeMap[activity] || "endBreak";
       copy.splice(i + 1, 0,
@@ -394,7 +427,7 @@ function FocusTracker() {
   };
 
   // ── compute durations ─────────────────────────────────────────
-  const stats = computeDayStats(events, now, STD_BREAK, RATIO);
+  const stats = computeDayStats(events, now, focusMode);
   const { workMin, breakMin, lunchMin, unpaidMin, clockIn, billable,
           nonBillableLunch, lunchOverage, creditAppliedToLunch, breakBalance } = stats;
   const ticketSummary = stats.tickets;
@@ -404,7 +437,7 @@ function FocusTracker() {
   let currentStart = null;
   if (events.length) {
     const li = events.length - 1;
-    if (followType[events[li].type] !== "none") currentStart = new Date(events[li].t).getTime();
+    if (actOf(events[li]) !== "none") currentStart = new Date(events[li].t).getTime();
   }
 
   const remaining = WORK_TARGET - billable;
@@ -684,11 +717,12 @@ function FocusTracker() {
                   clockIn: "Clocked in", startBreak: "Break started", endBreak: "Back to work",
                   startLunch: "Lunch started", endLunch: "Back from lunch", clockOut: "Clocked out",
                   startUnpaid: "Stepped out", endUnpaid: "Back to work", switchTicket: "Switched ticket",
+                  modeChange: "Changed focus mode",
                 };
                 const dotMap = {
                   clockIn: "#c2613c", endBreak: "#c2613c", endLunch: "#c2613c", endUnpaid: "#c2613c",
                   startBreak: "#5f8a6f", startLunch: "#b88a2e", startUnpaid: "#867a93", clockOut: theme.neutralBtn,
-                  switchTicket: "#c2613c",
+                  switchTicket: "#c2613c", modeChange: "#867a93",
                 };
                 return (
                   <div key={i} style={{
@@ -727,7 +761,7 @@ function FocusTracker() {
                         </button>
                       )}
                     </div>
-                    {ticketStartTypes.has(ev.type) && (
+                    {isTicketStart(ev) && (
                       editing ? (
                         <div>
                           <input
@@ -761,7 +795,7 @@ function FocusTracker() {
                         </div>
                       ) : null
                     )}
-                    {editing && followType[ev.type] !== "none" && (
+                    {editing && actOf(ev) !== "none" && (
                       <button onClick={() => insertBlock(i)}
                         style={{ marginTop: 10, marginLeft: 20, background: theme.dashedBg, color: theme.muted,
                           border: `1px dashed ${theme.inputBorder}`, borderRadius: 8, padding: "5px 10px", fontSize: 12,
