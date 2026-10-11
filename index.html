@@ -894,6 +894,8 @@ function FocusTracker() {
         {/* Week Summary */}
         {week.length > 0 && (() => {
           const weekBillable = week.reduce((a, d) => a + (d.stats?.billable || 0), 0);
+          // leftover credit from clocked-out days only; never added to weekBillable
+          const weekCredit = week.reduce((a, d) => a + (d.stats?.done ? d.stats.breakBalance || 0 : 0), 0);
           const weekTickets = {};
           for (const d of week) {
             if (!d.stats) continue;
@@ -931,6 +933,13 @@ function FocusTracker() {
                         <div style={{ height: "100%", borderRadius: 99, width: `${pct}%`,
                           background: d.isToday ? accent : theme.trackAlt, transition: "width .4s ease" }} />
                       </div>
+                      {/* Leftover break credit for finished days — display only (issue #3) */}
+                      {d.stats?.done && d.stats.breakBalance >= 1 && (
+                        <span title="Unused break credit (not counted)"
+                          style={{ fontVariantNumeric: "tabular-nums", fontSize: 12, opacity: .5 }}>
+                          +{fmtHM(d.stats.breakBalance)} credit
+                        </span>
+                      )}
                       <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 13, fontWeight: 600,
                         minWidth: 58, textAlign: "right", opacity: d.stats ? .85 : .35 }}>
                         {d.stats ? fmtHM(mins) : "—"}
@@ -952,6 +961,22 @@ function FocusTracker() {
                   </span>
                   <span style={{ fontSize: 12, opacity: .5 }}>/ {fmtHM(WEEK_TARGET)}</span>
                 </div>
+                {/* Week-level leftover break credit — shown, NOT added to Week total (issue #3) */}
+                {weekCredit >= 1 && (
+                  <div style={{
+                    display: "flex", alignItems: "center", gap: 12,
+                    padding: "10px 16px", borderTop: `1px solid ${theme.divider}`,
+                    background: theme.totalBg, opacity: .7,
+                  }}>
+                    <span style={{ flex: 1, fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".05em" }}>
+                      Unused break credit <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>(not counted)</span>
+                    </span>
+                    <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 600,
+                      fontFamily: "'Space Grotesk', sans-serif" }}>
+                      {fmtHM(weekCredit)}
+                    </span>
+                  </div>
+                )}
               </div>
 
               {showWeek && (
