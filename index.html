@@ -870,6 +870,23 @@ function FocusTracker() {
                   {fmtHM(Object.values(ticketSummary).reduce((a, b) => a + b, 0))}
                 </span>
               </div>
+              {/* End-of-day leftover break credit: shown for reference only,
+                  deliberately NOT added to the total above (issue #3). */}
+              {state === "done" && breakBalance >= 1 && (
+                <div style={{
+                  display: "flex", alignItems: "center", gap: 12,
+                  padding: "10px 16px", borderTop: `1px solid ${theme.divider}`,
+                  background: theme.totalBg, opacity: .7,
+                }}>
+                  <span style={{ flex: 1, fontSize: 12, fontWeight: 600, textTransform: "uppercase", letterSpacing: ".05em" }}>
+                    Unused break credit <span style={{ textTransform: "none", letterSpacing: 0, fontWeight: 400 }}>(not counted)</span>
+                  </span>
+                  <span style={{ fontVariantNumeric: "tabular-nums", fontSize: 14, fontWeight: 600,
+                    fontFamily: "'Space Grotesk', sans-serif" }}>
+                    {fmtHM(breakBalance)}
+                  </span>
+                </div>
+              )}
             </div>
           </div>
         )}
