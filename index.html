@@ -75,6 +75,7 @@ const followType = {
   startLunch: "lunch",
   startUnpaid: "unpaid",
   clockOut: "none",
+  sickDay: "none",   // sick / out-of-office day (issue #4)
 };
 
 const dateKey = (d) =>
@@ -125,6 +126,13 @@ const isTicketStart = (ev) =>
 
 // Pure day computation — used for today (live) and for past days in the week roll-up.
 function computeDayStats(events, nowTs, defaultMode) {
+  // Sick / out-of-office day (issue #4): counts as a full 8h, nothing else tracked.
+  if (events[0] && events[0].type === "sickDay") {
+    return { workMin: 0, breakMin: 0, lunchMin: 0, unpaidMin: 0, clockIn: null,
+             billable: WORK_TARGET, nonBillableLunch: 0, lunchOverage: 0,
+             creditAppliedToLunch: 0, breakBalance: 0, tickets: {}, ticketDescs: {},
+             done: true, sick: true };
+  }
   const last = events[events.length - 1];
   const done = last && last.type === "clockOut";
   const endRef = done ? new Date(last.t).getTime() : nowTs;
@@ -323,6 +331,8 @@ function FocusTracker() {
     ? "idle"
     : last.type === "clockOut"
     ? "done"
+    : last.type === "sickDay"
+    ? "sick"
     : actOf(last) === "work"
     ? "working"
     : actOf(last) === "break"
@@ -498,7 +508,8 @@ function FocusTracker() {
     state === "working" ? "Focused" :
     state === "onBreak" ? "On a break" :
     state === "onLunch" ? "At lunch" :
-    state === "onUnpaid" ? "Stepped out (unpaid)" : "Day complete";
+    state === "onUnpaid" ? "Stepped out (unpaid)" :
+    state === "sick" ? "Sick / out of office" : "Day complete";
 
   return (
     <div style={{ minHeight: "100vh", background: theme.bg, color: theme.text }}>
@@ -571,10 +582,12 @@ function FocusTracker() {
 
           <div style={{ display: "flex", alignItems: "flex-end", gap: 6 }}>
             <span style={{ fontFamily: "'Space Grotesk', sans-serif", fontWeight: 800, fontSize: 52, lineHeight: 1, fontVariantNumeric: "tabular-nums" }}>
-              {clockIn ? fmtHM(billable) : "0h 00m"}
+              {clockIn || stats.sick ? fmtHM(billable) : "0h 00m"}
             </span>
           </div>
-          <div style={{ fontSize: 13, opacity: .6, marginTop: 4 }}>billable so far &middot; target 8h 00m</div>
+          <div style={{ fontSize: 13, opacity: .6, marginTop: 4 }}>
+            {stats.sick ? "counted as a full day" : <>billable so far &middot; target 8h 00m</>}
+          </div>
 
           {breakStartAt && (
             <div style={{
@@ -688,7 +701,20 @@ function FocusTracker() {
         {/* Controls */}
         <div style={{ display: "flex", flexDirection: "column", gap: 10, marginBottom: 20 }}>
           {state === "idle" && (
-            <BigBtn color="#c2613c" onClick={() => push("clockIn")}>Clock In</BigBtn>
+            <>
+              <BigBtn color="#c2613c" onClick={() => push("clockIn")}>Clock In</BigBtn>
+              {/* Only offered before clocking in (issue #4) */}
+              <button className="ft-btn" onClick={() => push("sickDay")} style={{
+                width: "100%", background: "transparent", color: theme.muted,
+                border: `1px dashed ${theme.inputBorder}`, borderRadius: 14, padding: "11px 12px",
+                fontSize: 14, fontWeight: 600, fontFamily: "inherit", cursor: "pointer",
+              }}>
+                Sick / Out of Office &middot; counts as 8h
+              </button>
+            </>
+          )}
+          {state === "sick" && (
+            <BigBtn color={theme.neutralBtn} onClick={reset}>Undo Sick / Out of Office</BigBtn>
           )}
           {state === "working" && (
             <>
@@ -733,12 +759,12 @@ function FocusTracker() {
                   clockIn: "Clocked in", startBreak: "Break started", endBreak: "Back to work",
                   startLunch: "Lunch started", endLunch: "Back from lunch", clockOut: "Clocked out",
                   startUnpaid: "Stepped out", endUnpaid: "Back to work", switchTicket: "Switched ticket",
-                  modeChange: "Changed focus mode",
+                  modeChange: "Changed focus mode", sickDay: "Sick / out of office (8h)",
                 };
                 const dotMap = {
                   clockIn: "#c2613c", endBreak: "#c2613c", endLunch: "#c2613c", endUnpaid: "#c2613c",
                   startBreak: "#5f8a6f", startLunch: "#b88a2e", startUnpaid: "#867a93", clockOut: theme.neutralBtn,
-                  switchTicket: "#c2613c", modeChange: "#867a93",
+                  switchTicket: "#c2613c", modeChange: "#867a93", sickDay: "#867a93",
                 };
                 return (
                   <div key={i} style={{
@@ -934,6 +960,9 @@ function FocusTracker() {
                           background: d.isToday ? accent : theme.trackAlt, transition: "width .4s ease" }} />
                       </div>
                       {/* Leftover break credit for finished days — display only (issue #3) */}
+                      {d.stats?.sick && (
+                        <span style={{ fontSize: 12, opacity: .5 }}>sick / OOO</span>
+                      )}
                       {d.stats?.done && d.stats.breakBalance >= 1 && (
                         <span title="Unused break credit (not counted)"
                           style={{ fontVariantNumeric: "tabular-nums", fontSize: 12, opacity: .5 }}>
