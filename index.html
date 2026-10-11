@@ -272,6 +272,15 @@ function FocusTracker() {
     restoreInputs(evs);
   };
 
+  // Move to the real current date without touching the day that was open (issue #7).
+  // Matters when the tab was left open overnight: the old day is kept as-is.
+  const goToToday = () => {
+    const k = todayKey();
+    todayRef.current = k;
+    if (storageKey.current === k) { setViewKey(k); setEditing(false); return; }
+    openDay(k);
+  };
+
   // add an event at a set clock time on the day being viewed (past-day editing)
   const pushAt = (type, h, m) => {
     const [y, mo, dd] = viewKey.slice("focusday:".length).split("-").map(Number);
@@ -492,6 +501,20 @@ function FocusTracker() {
     });
   };
 
+  // An empty today page left open past midnight moves to the new date by itself,
+  // so you can't clock in on yesterday by accident (issue #7).
+  useEffect(() => {
+    if (loaded && !viewingPast && events.length === 0 && todayKey() !== todayRef.current) goToToday();
+  }, [now, loaded, viewingPast, events.length]);
+
+  // "Reset day" needs a second tap within a few seconds (issue #7)
+  const [confirmReset, setConfirmReset] = useState(false);
+  useEffect(() => {
+    if (!confirmReset) return;
+    const id = setTimeout(() => setConfirmReset(false), 4000);
+    return () => clearTimeout(id);
+  }, [confirmReset]);
+
   const reset = () => {
     setEvents([]);
     setEditing(false);
@@ -648,7 +671,7 @@ function FocusTracker() {
               <div style={{ fontSize: 12, opacity: .55, marginTop: 10 }}>
                 Adjust times, tickets and blocks in the log below.
               </div>
-              <button className="ft-btn" onClick={() => openDay(todayRef.current)} style={{
+              <button className="ft-btn" onClick={goToToday} style={{
                 marginTop: 12, width: "100%", background: theme.dashedBg, color: "#c2613c",
                 border: `1px dashed ${theme.dashedBorder}`, borderRadius: 10, padding: "9px 12px",
                 fontSize: 13, fontWeight: 700, fontFamily: "inherit", cursor: "pointer" }}>
@@ -863,7 +886,13 @@ function FocusTracker() {
             <BigBtn color="#c2613c" onClick={() => { push("endUnpaid"); }}>End Appointment &middot; Back to Work</BigBtn>
           )}
           {state === "done" && (
-            <BigBtn color="#c2613c" onClick={reset}>Start a New Day</BigBtn>
+            todayKey() !== todayRef.current ? (
+              <BigBtn color="#c2613c" onClick={goToToday}>Start a New Day</BigBtn>
+            ) : (
+              <div style={{ textAlign: "center", fontSize: 13, opacity: .6, padding: "6px 0" }}>
+                Day complete &middot; a new day starts tomorrow
+              </div>
+            )
           )}
         </div>
 
@@ -977,10 +1006,10 @@ function FocusTracker() {
               })}
             </div>
             {events.length > 0 && (
-              <button onClick={reset}
+              <button onClick={() => { if (confirmReset) { setConfirmReset(false); reset(); } else setConfirmReset(true); }}
                 style={{ display: "block", margin: "16px auto 0", background: "none", border: "none",
                   color: "#a8917a", fontSize: 13, cursor: "pointer", fontFamily: "inherit", textDecoration: "underline" }}>
-                Reset day
+                {confirmReset ? "Tap again to clear this day" : "Reset day"}
               </button>
             )}
           </div>
