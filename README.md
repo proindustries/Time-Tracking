@@ -1,8 +1,7 @@
 # Hours — Time Tracking App
 
-> [!CAUTION]
-> **This is a private, personal project. It is not open to contributions.**
-> Issues, comments and pull requests from anyone other than the owner are not accepted, and will be closed or deleted without a response. Please don't offer to help.
+> [!NOTE]
+> **This is a personal project, not a community one.** I built it for my own use, so I'm not taking issues, comments or pull requests from others, and I won't be able to respond to them. Thanks for understanding!
 
 A personal work-hours and focus tracker. Clock in, work in focus blocks, take breaks and lunch, tag time to tickets, and track progress toward an 8-hour day and a 40-hour week. Everything is stored in your own browser.
 
