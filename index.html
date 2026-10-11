@@ -769,7 +769,11 @@ function FocusTracker() {
             </>
           )}
           {state === "onBreak" && (
-            <BigBtn color="#c2613c" onClick={() => { push("endBreak"); }}>End Break &middot; Back to Work</BigBtn>
+            <>
+              <BigBtn color="#c2613c" onClick={() => { push("endBreak"); }}>End Break &middot; Back to Work</BigBtn>
+              {/* Clock out straight from a break (issue #5) */}
+              <BigBtn color={theme.neutralBtn} onClick={() => push("clockOut")}>Clock Out</BigBtn>
+            </>
           )}
           {state === "onLunch" && (
             <BigBtn color="#c2613c" onClick={() => { push("endLunch"); }}>End Lunch &middot; Back to Work</BigBtn>
