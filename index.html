@@ -78,6 +78,12 @@ const followType = {
   sickDay: "none",   // sick / out-of-office day (issue #4)
 };
 
+// Things to do on a sick day — shown as a checklist once the day is marked sick (issue #4).
+// Add more steps here as { id, label }.
+const SICK_STEPS = [
+  { id: "jira", label: "Put in request in Jira system" },
+];
+
 const dateKey = (d) =>
   `focusday:${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
 
@@ -446,6 +452,16 @@ function FocusTracker() {
     setEvents((e) => e.filter((_, idx) => idx !== i));
   };
 
+  // tick/untick a sick-day step; saved on the sickDay event so it persists (issue #4)
+  const toggleSickStep = (id) => {
+    setEvents((e) => {
+      if (!e[0] || e[0].type !== "sickDay") return e;
+      const done = { ...(e[0].stepsDone || {}) };
+      done[id] = !done[id];
+      return [{ ...e[0], stepsDone: done }, ...e.slice(1)];
+    });
+  };
+
   const reset = () => {
     setEvents([]);
     setEditing(false);
@@ -588,6 +604,30 @@ function FocusTracker() {
           <div style={{ fontSize: 13, opacity: .6, marginTop: 4 }}>
             {stats.sick ? "counted as a full day" : <>billable so far &middot; target 8h 00m</>}
           </div>
+
+          {state === "sick" && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em", opacity: .5, fontWeight: 600, marginBottom: 6 }}>
+                Sick day steps
+              </div>
+              {SICK_STEPS.map((step) => {
+                const checked = !!(events[0].stepsDone || {})[step.id];
+                return (
+                  <label key={step.id} style={{
+                    display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", marginTop: 6,
+                    border: `1px solid ${theme.inputBorder}`, borderRadius: 10, background: theme.inputBg,
+                    cursor: "pointer", fontSize: 14,
+                  }}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleSickStep(step.id)}
+                      style={{ width: 16, height: 16, accentColor: "#5f8a6f", margin: 0 }} />
+                    <span style={{ textDecoration: checked ? "line-through" : "none", opacity: checked ? .55 : 1 }}>
+                      {step.label}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
 
           {breakStartAt && (
             <div style={{
