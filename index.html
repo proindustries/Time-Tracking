@@ -231,7 +231,21 @@ function FocusTracker() {
   useEffect(() => {
     (async () => {
       const raw = await store.get(storageKey.current);
-      if (raw) { try { setEvents(JSON.parse(raw)); } catch (_) {} }
+      if (raw) {
+        try {
+          const saved = JSON.parse(raw);
+          setEvents(saved);
+          // Restore the "Current ticket" / description fields from the most recent
+          // ticket segment so a reload doesn't blank them (issue #1).
+          for (let i = saved.length - 1; i >= 0; i--) {
+            if (isTicketStart(saved[i])) {
+              setTicketInput(saved[i].ticket || "");
+              setDescInput(saved[i].desc || "");
+              break;
+            }
+          }
+        } catch (_) {}
+      }
       const dm = await store.get("ui:darkMode");
       if (dm === "true") setDarkMode(true);
       const fm = await store.get("ui:focusMode");
