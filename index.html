@@ -40,6 +40,11 @@
 // ── Time helpers ───────────────────────────────────────────────
 const MS = 60000;
 const WORK_TARGET = 480; // 8 billable hours, in minutes
+
+// Checklist shown after marking a Sick / Out of Office day (issue #4). Add steps here.
+const SICK_DAY_STEPS = [
+  "Put in request in Jira system",
+];
 const PRESETS = {
   classic: { focus: 52, brk: 17, label: "52 / 17", name: "Classic" },
   deep:    { focus: 90, brk: 20, label: "90 / 20", name: "Deep Work" },
@@ -446,6 +451,16 @@ function FocusTracker() {
     setEvents((e) => e.filter((_, idx) => idx !== i));
   };
 
+  // tick/untick a sick-day step; stored as indexes on the sickDay event (issue #4)
+  const toggleSickStep = (k) => {
+    setEvents((e) => {
+      if (!e[0] || e[0].type !== "sickDay") return e;
+      const done = e[0].stepsDone || [];
+      const next = done.includes(k) ? done.filter((x) => x !== k) : [...done, k];
+      return [{ ...e[0], stepsDone: next }, ...e.slice(1)];
+    });
+  };
+
   const reset = () => {
     setEvents([]);
     setEditing(false);
@@ -588,6 +603,28 @@ function FocusTracker() {
           <div style={{ fontSize: 13, opacity: .6, marginTop: 4 }}>
             {stats.sick ? "counted as a full day" : <>billable so far &middot; target 8h 00m</>}
           </div>
+
+          {/* Sick-day steps checklist (issue #4). Checked state is saved on the sickDay event. */}
+          {state === "sick" && (
+            <div style={{ marginTop: 14 }}>
+              <div style={{ fontSize: 12, textTransform: "uppercase", letterSpacing: ".06em", opacity: .5, fontWeight: 600, marginBottom: 6 }}>
+                Sick day steps
+              </div>
+              {SICK_DAY_STEPS.map((step, k) => {
+                const doneSteps = (events[0] && events[0].stepsDone) || [];
+                const checked = doneSteps.includes(k);
+                return (
+                  <label key={k} style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px",
+                    border: `1px solid ${theme.inputBorder}`, borderRadius: 10, background: theme.inputBg,
+                    fontSize: 14, cursor: "pointer", marginTop: k ? 6 : 0 }}>
+                    <input type="checkbox" checked={checked} onChange={() => toggleSickStep(k)}
+                      style={{ width: 16, height: 16, accentColor: "#5f8a6f" }} />
+                    <span style={{ textDecoration: checked ? "line-through" : "none", opacity: checked ? .55 : 1 }}>{step}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
 
           {breakStartAt && (
             <div style={{
