@@ -1,18 +1,19 @@
 # Hours — Time Tracking App
 
-A personal work-hours and focus tracker. Clock in, work in focus blocks, take breaks and lunch, tag time to tickets, and see how close you are to an 8-hour billable day and a 40-hour week.
+> [!CAUTION]
+> **This is a private, personal project. It is not open to contributions.**
+> Issues, comments and pull requests from anyone other than the owner are not accepted, and will be closed or deleted without a response. Please don't offer to help.
 
-**Live app:** https://proindustries.github.io/Time-Tracking/
+A personal work-hours and focus tracker. Clock in, work in focus blocks, take breaks and lunch, tag time to tickets, and track progress toward an 8-hour day and a 40-hour week. Everything is stored in your own browser.
 
-> This is a personal project and isn't open for outside contributions.
-
-## Features
+<details>
+<summary><strong>Features</strong></summary>
 
 - **Clock in / out** with a live billable total and a projected clock-out time for 8 billable hours.
 - **Focus modes** set the length of a work block and the break it earns:
 
-  | Mode      | Focus | Break |
-  |-----------|-------|-------|
+  | Mode      | Focus  | Break  |
+  |-----------|--------|--------|
   | Classic   | 52 min | 17 min |
   | Deep Work | 90 min | 20 min |
   | Pomodoro  | 25 min | 5 min  |
@@ -29,7 +30,10 @@ A personal work-hours and focus tracker. Clock in, work in focus blocks, take br
 - **New day handling:** a finished day is never wiped. After midnight, **Start a New Day** moves to the new date, and **Reset day** needs a second tap.
 - **Dark mode**, with the setting remembered.
 
-## How hours are calculated
+</details>
+
+<details>
+<summary><strong>How hours are calculated</strong></summary>
 
 ```
 billable = (clock-out − clock-in) − unpaid lunch − stepped-out time
@@ -38,28 +42,30 @@ unpaid lunch = max(0, lunch − standard break − unused break credit)
 
 Breaks count as billable time. A day marked Sick / Out of Office counts as exactly 8 hours.
 
-## Your data
+</details>
 
-Everything is saved in your browser's local storage, one entry per day (`focusday:YYYY-MM-DD`). Nothing is sent to a server, and nothing is stored in this repository. As a result:
+<details>
+<summary><strong>Data storage</strong></summary>
+
+Everything is saved in the browser's local storage, one entry per day (`focusday:YYYY-MM-DD`). Nothing is sent to a server, and nothing is stored in this repository. As a result:
 
 - Each browser and device has its own separate history, with no syncing.
-- Clearing site data for the page erases your history.
-- Anyone else who opens the live link sees an empty tracker, not your hours.
+- Clearing site data for the page erases the history.
+- Anyone else who opens the page sees an empty tracker.
 
-## Running it
+</details>
+
+<details>
+<summary><strong>Running, building and configuration</strong></summary>
 
 It's a single file, `index.html`, with no build step.
 
-- **Hosted:** GitHub Pages serves `index.html` from the `main` branch, so merging to `main` updates the live app within a minute or two. A hard refresh (Ctrl+Shift+R / Cmd+Shift+R) picks up changes right away.
+- **Hosted:** https://proindustries.github.io/Time-Tracking/. GitHub Pages serves `index.html` from the `main` branch, so merging to `main` updates the live app within a minute or two. A hard refresh (Ctrl+Shift+R / Cmd+Shift+R) picks up changes right away.
 - **Locally:** open `index.html` in a browser. It needs an internet connection the first time, to load its libraries.
+- **Stack:** React 18 and Babel Standalone are loaded from unpkg, with jsDelivr as a fallback. The app's JSX is compiled in the browser at startup. All app code lives inside `<script type="text/plain" id="app-source">` in `index.html`. A small loader script at the bottom compiles and mounts it, and shows an error on the page if anything fails to load.
+- **Settings in code:**
+  - `SICK_STEPS`: the sick-day checklist.
+  - `PRESETS`: the focus modes.
+  - `WORK_TARGET`: the daily target, in minutes (default 480).
 
-## How it's built
-
-- React 18 and Babel Standalone are loaded from unpkg, with jsDelivr as a fallback. The app's JSX is compiled in the browser at startup.
-- All app code lives in `index.html`, inside `<script type="text/plain" id="app-source">`. A small loader script at the bottom compiles and mounts it, and shows an error message on the page if anything fails to load.
-
-## Changing things
-
-- **Sick-day checklist:** edit `SICK_STEPS` near the top of the app code.
-- **Focus modes:** edit `PRESETS`.
-- **Daily target:** edit `WORK_TARGET` (in minutes, default 480).
+</details>
