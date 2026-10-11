@@ -398,7 +398,9 @@ function FocusTracker() {
   const editEventDesc = (i, val) => {
     setEvents((e) => {
       const copy = [...e];
-      copy[i] = { ...copy[i], desc: val.trim() };
+      // Keep the raw text while typing; trimming on every keystroke deleted spaces
+      // typed at the end of a word (issue #2). Stats/summaries already trim.
+      copy[i] = { ...copy[i], desc: val };
       return copy;
     });
   };
